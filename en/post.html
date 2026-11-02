@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Post an ad – Krisha Kaskelen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap&subset=cyrillic" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<header>
+<div class="wrap">
+<a class="logo" href="index.html">Krisha<span>Kaskelen</span>
+</a>
+<nav>
+<a href="index.html">Rent</a>
+<a href="index.html">Buy</a>
+<a href="post.html">Post an ad</a>
+<a href="login.html">Log in</a>
+<a href="register.html">Sign up</a>
+</nav>
+<span class="lang" aria-label="Language">
+<a href="../en/post.html" aria-current="true" hreflang="en">EN</a>
+<a href="../ru/post.html" hreflang="ru">RU</a>
+<a href="../kk/post.html" hreflang="kk">ҚАЗ</a>
+</span>
+</div>
+</header>
+<main class="wrap formpage">
+<h1>Post an apartment</h1>
+<p class="notice">Only logged-in users can post. <a href="login.html">
+<b>Log in</b>
+</a> or <a href="register.html">
+<b>Sign up</b>
+</a> first.</p>
+<form class="stack" action="index.html">
+<section class="panel">
+<h2>Main details</h2>
+<div class="stack">
+<label>Ad title<input type="text" placeholder="2-room apartment near SDU" required>
+</label>
+<div class="row">
+<label>Deal<select>
+<option>Rent</option>
+<option>Buy</option>
+</select>
+</label>
+<label>Price (₸)<input type="number" min="0" required>
+</label>
+</div>
+<div class="row">
+<label>Rooms<select>
+<option>Studio</option>
+<option>1</option>
+<option>2</option>
+<option>3</option>
+<option>4+</option>
+</select>
+</label>
+<label>Area (m²)<input type="number" min="1" required>
+</label>
+</div>
+<div class="row">
+<label>Floor<input type="number" min="1">
+</label>
+<label>Floors in building<input type="number" min="1">
+</label>
+</div>
+<div class="row">
+<label>Year built<input type="number" min="1900" max="2026">
+</label>
+<label>District<select>
+<option>Near SDU</option>
+<option>Center</option>
+<option>New district</option>
+</select>
+</label>
+</div>
+<label>Address<input type="text" placeholder="Street, building" required>
+</label>
+</div>
+</section>
+<section class="panel">
+<h2>Description</h2>
+<label>Tell people about the apartment<textarea placeholder="Renovation, furniture, transport, neighbors..." required>
+</textarea>
+</label>
+</section>
+<section class="panel">
+<h2>Photos</h2>
+<div class="drop">
+<input type="file" accept="image/*" multiple>
+<p class="hint">Add up to 10 photos. The first one will be the cover.</p>
+</div>
+</section>
+<section class="panel">
+<h2>Contacts</h2>
+<div class="stack">
+<label>Owner phone<input type="tel" placeholder="+7 700 000 00 00" required>
+</label>
+<label>Previous tenant phone (optional)<input type="tel" placeholder="+7 701 000 00 00">
+</label>
+<label>Previous tenant review (optional)<textarea placeholder="What was it like to live here?">
+</textarea>
+</label>
+</div>
+</section>
+<button class="btn" type="submit">Publish ad</button>
+</form>
+</main>
+<footer>
+<div class="wrap">Krisha Kaskelen · Team Jews · CSS 225 Web Development Project</div>
+</footer>
+</body>
+</html>

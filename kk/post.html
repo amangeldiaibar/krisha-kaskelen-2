@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="kk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Хабарландыру беру – Krisha Kaskelen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap&subset=cyrillic" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<header>
+<div class="wrap">
+<a class="logo" href="index.html">Krisha<span>Kaskelen</span>
+</a>
+<nav>
+<a href="index.html">Жалға алу</a>
+<a href="index.html">Сатып алу</a>
+<a href="post.html">Хабарландыру беру</a>
+<a href="login.html">Кіру</a>
+<a href="register.html">Тіркелу</a>
+</nav>
+<span class="lang" aria-label="Language">
+<a href="../en/post.html" hreflang="en">EN</a>
+<a href="../ru/post.html" hreflang="ru">RU</a>
+<a href="../kk/post.html" aria-current="true" hreflang="kk">ҚАЗ</a>
+</span>
+</div>
+</header>
+<main class="wrap formpage">
+<h1>Пәтер туралы хабарландыру беру</h1>
+<p class="notice">Хабарландыруды тек жүйеге кірген пайдаланушылар бере алады. <a href="login.html">
+<b>Кіру</b>
+</a> немесе <a href="register.html">
+<b>Тіркелу</b>
+</a> алдымен.</p>
+<form class="stack" action="index.html">
+<section class="panel">
+<h2>Негізгі мәліметтер</h2>
+<div class="stack">
+<label>Хабарландыру тақырыбы<input type="text" placeholder="SDU маңындағы 2 бөлмелі пәтер" required>
+</label>
+<div class="row">
+<label>Мәміле<select>
+<option>Жалға алу</option>
+<option>Сатып алу</option>
+</select>
+</label>
+<label>Бағасы (₸)<input type="number" min="0" required>
+</label>
+</div>
+<div class="row">
+<label>Бөлме саны<select>
+<option>Студия</option>
+<option>1</option>
+<option>2</option>
+<option>3</option>
+<option>4+</option>
+</select>
+</label>
+<label>Ауданы (м²)<input type="number" min="1" required>
+</label>
+</div>
+<div class="row">
+<label>Қабат<input type="number" min="1">
+</label>
+<label>Үйдегі қабат саны<input type="number" min="1">
+</label>
+</div>
+<div class="row">
+<label>Салынған жылы<input type="number" min="1900" max="2026">
+</label>
+<label>Аудан<select>
+<option>SDU маңы</option>
+<option>Орталық</option>
+<option>Жаңа шағын аудан</option>
+</select>
+</label>
+</div>
+<label>Мекенжайы<input type="text" placeholder="Көше, үй" required>
+</label>
+</div>
+</section>
+<section class="panel">
+<h2>Сипаттама</h2>
+<label>Пәтер туралы айтып беріңіз<textarea placeholder="Жөндеуі, жиһазы, көлік, көршілер..." required>
+</textarea>
+</label>
+</section>
+<section class="panel">
+<h2>Фотолар</h2>
+<div class="drop">
+<input type="file" accept="image/*" multiple>
+<p class="hint">10 фотоға дейін қосыңыз. Біріншісі мұқаба болады.</p>
+</div>
+</section>
+<section class="panel">
+<h2>Байланыс</h2>
+<div class="stack">
+<label>Иесінің телефоны<input type="tel" placeholder="+7 700 000 00 00" required>
+</label>
+<label>Бұрынғы тұрғынның телефоны (міндетті емес)<input type="tel" placeholder="+7 701 000 00 00">
+</label>
+<label>Бұрынғы тұрғынның пікірі (міндетті емес)<textarea placeholder="Мұнда тұру қандай болды?">
+</textarea>
+</label>
+</div>
+</section>
+<button class="btn" type="submit">Жариялау</button>
+</form>
+</main>
+<footer>
+<div class="wrap">Krisha Kaskelen · Jews командасы · CSS 225 Web Development Project</div>
+</footer>
+</body>
+</html>

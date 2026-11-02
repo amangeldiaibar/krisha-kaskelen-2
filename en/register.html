@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign up – Krisha Kaskelen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap&subset=cyrillic" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<header>
+<div class="wrap">
+<a class="logo" href="index.html">Krisha<span>Kaskelen</span>
+</a>
+<nav>
+<a href="index.html">Rent</a>
+<a href="index.html">Buy</a>
+<a href="post.html">Post an ad</a>
+<a href="login.html">Log in</a>
+<a href="register.html">Sign up</a>
+</nav>
+<span class="lang" aria-label="Language">
+<a href="../en/register.html" aria-current="true" hreflang="en">EN</a>
+<a href="../ru/register.html" hreflang="ru">RU</a>
+<a href="../kk/register.html" hreflang="kk">ҚАЗ</a>
+</span>
+</div>
+</header>
+<main class="wrap auth">
+<h1>Create an account</h1>
+<p class="meta">You need an account to post apartments.</p>
+<section class="panel">
+<form class="stack" action="login.html">
+<label>Full name<input type="text" name="name" required autocomplete="name">
+</label>
+<label>Phone number<input type="tel" name="phone" placeholder="+7 700 000 00 00" required autocomplete="tel">
+</label>
+<label>Email<input type="email" name="email" required autocomplete="email">
+</label>
+<label>Password<input type="password" name="password" minlength="8" required autocomplete="new-password">
+<span class="hint">At least 8 characters</span>
+</label>
+<label>Repeat password<input type="password" name="password2" minlength="8" required autocomplete="new-password">
+</label>
+<label class="check">
+<input type="checkbox" required> I agree to the terms of use</label>
+<button class="btn full" type="submit">Sign up</button>
+</form>
+</section>
+<p class="alt">Already have an account? <a href="login.html">Log in</a>
+</p>
+</main>
+<footer>
+<div class="wrap">Krisha Kaskelen · Team Jews · CSS 225 Web Development Project</div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Подать объявление – Krisha Kaskelen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap&subset=cyrillic" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<header>
+<div class="wrap">
+<a class="logo" href="index.html">Krisha<span>Kaskelen</span>
+</a>
+<nav>
+<a href="index.html">Аренда</a>
+<a href="index.html">Купить</a>
+<a href="post.html">Подать объявление</a>
+<a href="login.html">Войти</a>
+<a href="register.html">Регистрация</a>
+</nav>
+<span class="lang" aria-label="Language">
+<a href="../en/post.html" hreflang="en">EN</a>
+<a href="../ru/post.html" aria-current="true" hreflang="ru">RU</a>
+<a href="../kk/post.html" hreflang="kk">ҚАЗ</a>
+</span>
+</div>
+</header>
+<main class="wrap formpage">
+<h1>Подать объявление о квартире</h1>
+<p class="notice">Подавать объявления могут только вошедшие пользователи. <a href="login.html">
+<b>Войти</b>
+</a> или <a href="register.html">
+<b>Регистрация</b>
+</a> сначала.</p>
+<form class="stack" action="index.html">
+<section class="panel">
+<h2>Основные данные</h2>
+<div class="stack">
+<label>Заголовок объявления<input type="text" placeholder="2-комнатная квартира рядом с SDU" required>
+</label>
+<div class="row">
+<label>Сделка<select>
+<option>Аренда</option>
+<option>Купить</option>
+</select>
+</label>
+<label>Цена (₸)<input type="number" min="0" required>
+</label>
+</div>
+<div class="row">
+<label>Комнаты<select>
+<option>Студия</option>
+<option>1</option>
+<option>2</option>
+<option>3</option>
+<option>4+</option>
+</select>
+</label>
+<label>Площадь (м²)<input type="number" min="1" required>
+</label>
+</div>
+<div class="row">
+<label>Этаж<input type="number" min="1">
+</label>
+<label>Этажей в доме<input type="number" min="1">
+</label>
+</div>
+<div class="row">
+<label>Год постройки<input type="number" min="1900" max="2026">
+</label>
+<label>Район<select>
+<option>Рядом с SDU</option>
+<option>Центр</option>
+<option>Новый район</option>
+</select>
+</label>
+</div>
+<label>Адрес<input type="text" placeholder="Улица, дом" required>
+</label>
+</div>
+</section>
+<section class="panel">
+<h2>Описание</h2>
+<label>Расскажите о квартире<textarea placeholder="Ремонт, мебель, транспорт, соседи..." required>
+</textarea>
+</label>
+</section>
+<section class="panel">
+<h2>Фотографии</h2>
+<div class="drop">
+<input type="file" accept="image/*" multiple>
+<p class="hint">Добавьте до 10 фото. Первое станет обложкой.</p>
+</div>
+</section>
+<section class="panel">
+<h2>Контакты</h2>
+<div class="stack">
+<label>Телефон владельца<input type="tel" placeholder="+7 700 000 00 00" required>
+</label>
+<label>Телефон прошлого жильца (необязательно)<input type="tel" placeholder="+7 701 000 00 00">
+</label>
+<label>Отзыв прошлого жильца (необязательно)<textarea placeholder="Каково было жить здесь?">
+</textarea>
+</label>
+</div>
+</section>
+<button class="btn" type="submit">Опубликовать</button>
+</form>
+</main>
+<footer>
+<div class="wrap">Krisha Kaskelen · Команда Jews · CSS 225 Web Development Project</div>
+</footer>
+</body>
+</html>
