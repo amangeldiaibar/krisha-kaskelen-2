@@ -57,16 +57,15 @@ export function createDgis({ key, db, fetchImpl = fetch }) {
    */
   async function reviewsForAddress(address) {
     const cacheKey = `reviews:${address.toLowerCase()}`;
-    const cached = db
-      .prepare('SELECT body, fetched_at FROM dgis_cache WHERE cache_key = ?')
-      .get(cacheKey);
+    const cached = await db.get('SELECT body, fetched_at FROM dgis_cache WHERE cache_key = $1', [cacheKey]);
     if (cached && Date.now() - cached.fetched_at < REVIEWS_TTL_MS) return JSON.parse(cached.body);
 
     const result = await loadReviews(address);
-    db.prepare(
-      `INSERT INTO dgis_cache (cache_key, body, fetched_at) VALUES (?, ?, ?)
+    await db.run(
+      `INSERT INTO dgis_cache (cache_key, body, fetched_at) VALUES ($1, $2, $3)
        ON CONFLICT (cache_key) DO UPDATE SET body = excluded.body, fetched_at = excluded.fetched_at`,
-    ).run(cacheKey, JSON.stringify(result), Date.now());
+      [cacheKey, JSON.stringify(result), Date.now()],
+    );
     return result;
   }
 

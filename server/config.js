@@ -12,19 +12,23 @@ try {
 const dataDir = process.env.DATA_DIR || path.join(root, 'data');
 
 const DEFAULT_GEMINI_MODEL = 'gemini-flash-lite-latest';
+// The PostgreSQL server that `npm run db` starts. It accepts connections only from this computer.
+const LOCAL_DATABASE_URL = 'postgres://krisha:krisha@localhost:54329/krisha';
 
 export const config = {
   root,
   dataDir,
-  dbPath: path.join(dataDir, 'app.db'),
+  databaseUrl: process.env.DATABASE_URL || LOCAL_DATABASE_URL,
+  usesLocalDatabase: !process.env.DATABASE_URL,
+  localDatabaseDir: path.join(dataDir, 'postgres'),
+  // The SQLite file the site used before PostgreSQL. Only the one-time data move reads it.
+  sqlitePath: path.join(dataDir, 'app.db'),
   uploadsDir: path.join(dataDir, 'uploads'),
   port: Number(process.env.PORT || 3000),
   isProduction: process.env.NODE_ENV === 'production',
   dgisKey: process.env.DGIS_API_KEY || '',
-  // Gemini has a free tier, so a Gemini key takes priority over a Claude key.
   geminiKey: process.env.GEMINI_API_KEY || '',
-  moderationProvider: process.env.GEMINI_API_KEY ? 'gemini' : process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN ? 'claude' : null,
-  moderationModel: process.env.MODERATION_MODEL || (process.env.GEMINI_API_KEY ? DEFAULT_GEMINI_MODEL : 'claude-opus-5-5'),
+  moderationModel: process.env.MODERATION_MODEL || DEFAULT_GEMINI_MODEL,
   serpApiKey: process.env.SERPAPI_KEY || '',
   telegram: {
     apiId: Number(process.env.TELEGRAM_API_ID || 0),

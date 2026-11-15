@@ -1,16 +1,16 @@
 import path from 'node:path';
 import { config } from './config.js';
-import { openDb } from './db.js';
+import { openDatabase } from './open-db.js';
 import { createApp } from './app.js';
 import { createDgis } from './services/dgis.js';
-import { createGeminiModerator, createModerator, createUncheckedModerator } from './services/moderation.js';
+import { createGeminiModerator, createUncheckedModerator } from './services/moderation.js';
 import { createWorker } from './services/worker.js';
 
 const WORKER_INTERVAL_MS = 30_000;
 
 if (!config.dgisKey) console.warn('DGIS_API_KEY is not set. Maps, addresses and 2GIS reviews will not work.');
-if (config.moderationProvider) {
-  console.log(`AI moderation: ${config.moderationProvider}, model ${config.moderationModel}.`);
+if (config.geminiKey) {
+  console.log(`AI moderation: Gemini, model ${config.moderationModel}.`);
 } else {
   console.warn(
     config.isProduction
@@ -19,15 +19,18 @@ if (config.moderationProvider) {
   );
 }
 
-const db = openDb(config.dbPath);
+if (config.isProduction && config.usesLocalDatabase) {
+  console.error('Set DATABASE_URL in production. The local database is only for development.');
+  process.exit(1);
+}
+// The very first local start creates the database files, which takes up to a minute.
+const db = await openDatabase({ waitMs: config.usesLocalDatabase ? 180_000 : 30_000 });
 const dgis = createDgis({ key: config.dgisKey, db });
 
 const { moderationModel: model, uploadsDir } = config;
 let moderator = null;
-if (config.moderationProvider === 'gemini') {
+if (config.geminiKey) {
   moderator = createGeminiModerator({ apiKey: config.geminiKey, model, uploadsDir });
-} else if (config.moderationProvider === 'claude') {
-  moderator = createModerator({ model, uploadsDir });
 } else if (!config.isProduction) {
   moderator = createUncheckedModerator();
 }

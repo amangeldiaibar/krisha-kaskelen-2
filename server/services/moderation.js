@@ -1,6 +1,5 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
 
@@ -37,7 +36,7 @@ export class ModerationUnavailable extends Error {}
 export const NO_AI_KEY_REASON = 'no_ai_key';
 
 /**
- * Local stand-in used only outside production while no Claude key is set, so
+ * Local stand-in used only outside production while no Gemini key is set, so
  * the site stays usable. The reason marks these items as unchecked.
  */
 export function createUncheckedModerator() {
@@ -64,7 +63,7 @@ const readPhotos = (photos, uploadsDir) =>
 const assessmentText = (kind, payload, lang) =>
   `Assess this ${kind}. Write the reason in ${LANGUAGE_NAMES[lang] ?? LANGUAGE_NAMES.ru}.\n<content>\n${JSON.stringify(payload)}\n</content>`;
 
-/** The content each provider sees. Phone numbers stay out of it on purpose. */
+/** The content the model sees. Phone numbers stay out of it on purpose. */
 function withDecide(decide) {
   return {
     moderateListing(listing, photos) {
@@ -124,41 +123,5 @@ export function createGeminiModerator({ apiKey, client, model, uploadsDir }) {
     }
     if (finish && finish !== 'STOP') throw new ModerationUnavailable(`Gemini stopped: ${finish}`);
     return parseDecision(response.text);
-  });
-}
-
-export function createModerator({ client = new Anthropic(), model, uploadsDir }) {
-  const imageBlocks = async (photos) =>
-    (await readPhotos(photos, uploadsDir)).map(({ mime, data }) => ({
-      type: 'image',
-      source: { type: 'base64', media_type: mime, data },
-    }));
-
-  return withDecide(async (kind, payload, photos, lang) => {
-    const response = await client.beta.messages.create({
-      model,
-      max_tokens: 4000,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      output_config: {
-        effort: 'low',
-        format: { type: 'json_schema', schema: DECISION_SCHEMA },
-      },
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: 'user',
-          content: [...(await imageBlocks(photos)), { type: 'text', text: assessmentText(kind, payload, lang) }],
-        },
-      ],
-    });
-
-    if (response.stop_reason === 'refusal') {
-      throw new ModerationUnavailable(`Model refused: ${response.stop_details?.category ?? 'unknown'}`);
-    }
-    if (response.stop_reason === 'max_tokens') {
-      throw new ModerationUnavailable('Model hit max_tokens');
-    }
-    return parseDecision(response.content.find((block) => block.type === 'text')?.text);
   });
 }

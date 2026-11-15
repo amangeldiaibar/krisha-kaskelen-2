@@ -1,7 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { transaction } from '../db.js';
 import { sniffImage } from '../images.js';
 
 const QUERY = 'krisha.kz сдам квартиру Каскелен рядом с СДУ цена тенге';
@@ -111,7 +110,7 @@ export async function searchGoogle({ apiKey, fetchImpl = fetch }) {
  * five listings in total. App and test listings are never removed.
  */
 export async function importListings({ db, dgis, results }) {
-  const slots = freeImportSlots(db);
+  const slots = await freeImportSlots(db);
 
   const prepared = [];
   // Ads with a house number land on the map most accurately, so they go first.
@@ -124,27 +123,26 @@ export async function importListings({ db, dgis, results }) {
     const point = await dgis.geocode(parsed.address, { approximate: true });
     if (point) prepared.push({ ...parsed, ...point });
   }
-  saveImports({ db, prepared, slots });
+  await saveImports({ db, prepared, slots });
   return { imported: prepared.length, slots };
 }
 
-export function freeImportSlots(db) {
-  const { own } = db.prepare(`SELECT COUNT(*) AS own FROM listings WHERE source_type != 'import' OR source_name LIKE 't.me/%'`).get();
+export async function freeImportSlots(db) {
+  const { own } = await db.get(`SELECT COUNT(*) AS own FROM listings WHERE source_type != 'import' OR source_name LIKE 't.me/%'`);
   return Math.max(0, MAX_TOTAL_LISTINGS - own);
 }
 
 /** Saves valid images for a listing and returns how many were kept. */
-export function addListingPhotos({ db, listingId, buffers, uploadsDir }) {
+export async function addListingPhotos({ db, listingId, buffers, uploadsDir }) {
   fs.mkdirSync(uploadsDir, { recursive: true });
-  const insert = db.prepare('INSERT INTO photos (listing_id, filename, mime, position) VALUES (?, ?, ?, ?)');
-  let position = db.prepare('SELECT COUNT(*) AS n FROM photos WHERE listing_id = ?').get(listingId).n;
+  let position = (await db.get('SELECT COUNT(*) AS n FROM photos WHERE listing_id = $1', [listingId])).n;
   let kept = 0;
   for (const buffer of buffers) {
     const type = sniffImage(buffer);
     if (!type || buffer.length > MAX_PHOTO_BYTES) continue;
     const filename = `${crypto.randomUUID()}.${type.ext}`;
     fs.writeFileSync(path.join(uploadsDir, filename), buffer);
-    insert.run(listingId, filename, type.mime, position);
+    await db.run('INSERT INTO photos (listing_id, filename, mime, position) VALUES ($1, $2, $3, $4)', [listingId, filename, type.mime, position]);
     position += 1;
     kept += 1;
   }
@@ -152,36 +150,32 @@ export function addListingPhotos({ db, listingId, buffers, uploadsDir }) {
 }
 
 /** Older search imports leave only when new ones need their place. Telegram ads stay. */
-export function saveImports({ db, prepared, slots, uploadsDir }) {
+export async function saveImports({ db, prepared, slots, uploadsDir }) {
   if (prepared.length === 0) return [];
-  const removeFiles = (id) => {
-    if (!uploadsDir) return;
-    for (const { filename } of db.prepare('SELECT filename FROM photos WHERE listing_id = ?').all(id)) {
-      fs.rmSync(path.join(uploadsDir, filename), { force: true });
-    }
+  const files = [];
+  const remove = async (tx, id) => {
+    files.push(...(await tx.all('SELECT filename FROM photos WHERE listing_id = $1', [id])).map((photo) => photo.filename));
+    await tx.run('DELETE FROM listings WHERE id = $1', [id]);
   };
-  return transaction(db, () => {
-    const remove = db.prepare('DELETE FROM listings WHERE id = ?');
-    const sameUrl = db.prepare(`SELECT id FROM listings WHERE source_type = 'import' AND source_url = ?`);
+  const saved = await db.transaction(async (tx) => {
     for (const item of prepared) {
-      const existing = sameUrl.get(item.sourceUrl);
-      if (existing) {
-        removeFiles(existing.id);
-        remove.run(existing.id);
-      }
+      const existing = await tx.get(`SELECT id FROM listings WHERE source_type = 'import' AND source_url = $1`, [item.sourceUrl]);
+      if (existing) await remove(tx, existing.id);
     }
-    const old = db.prepare(`SELECT id FROM listings WHERE source_type = 'import' AND source_name NOT LIKE 't.me/%' ORDER BY id`).all();
-    old.slice(0, Math.max(0, old.length + prepared.length - slots)).forEach(({ id }) => {
-      removeFiles(id);
-      remove.run(id);
-    });
-    const insert = db.prepare(
-      `INSERT INTO listings (source_type, source_name, source_url, title, deal, price, rooms, area, address, description, lat, lon, status)
-       VALUES ('import', ?, ?, ?, 'rent', ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-    );
-    return prepared.map((item) => {
-      const { lastInsertRowid } = insert.run(item.sourceName, item.sourceUrl, item.title, item.price, item.rooms, item.area, item.address, item.description, item.lat, item.lon);
-      return { ...item, listingId: Number(lastInsertRowid) };
-    });
+    const old = await tx.all(`SELECT id FROM listings WHERE source_type = 'import' AND source_name NOT LIKE 't.me/%' ORDER BY id`);
+    for (const { id } of old.slice(0, Math.max(0, old.length + prepared.length - slots))) await remove(tx, id);
+    const result = [];
+    for (const item of prepared) {
+      const { id } = await tx.get(
+        `INSERT INTO listings (source_type, source_name, source_url, title, deal, price, rooms, area, address, description, lat, lon, status)
+         VALUES ('import', $1, $2, $3, 'rent', $4, $5, $6, $7, $8, $9, $10, 'pending') RETURNING id`,
+        [item.sourceName, item.sourceUrl, item.title, item.price, item.rooms, item.area, item.address, item.description, item.lat, item.lon],
+      );
+      result.push({ ...item, listingId: id });
+    }
+    return result;
   });
+  // Files go only after the commit, so a failed save leaves the old photos in place.
+  if (uploadsDir) for (const filename of files) fs.rmSync(path.join(uploadsDir, filename), { force: true });
+  return saved;
 }

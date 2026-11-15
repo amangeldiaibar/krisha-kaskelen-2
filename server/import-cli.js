@@ -1,5 +1,5 @@
 import { config } from './config.js';
-import { openDb } from './db.js';
+import { openDatabase } from './open-db.js';
 import { createDgis } from './services/dgis.js';
 import { importListings, parseResult, searchGoogle } from './services/importer.js';
 
@@ -7,7 +7,7 @@ if (!config.serpApiKey) {
   console.error('SERPAPI_KEY is not set. Add it to .env to import public Google results.');
   process.exit(1);
 }
-const db = openDb(config.dbPath);
+const db = await openDatabase();
 const dgis = createDgis({ key: config.dgisKey, db });
 const results = await searchGoogle({ apiKey: config.serpApiKey });
 for (const result of results) {
@@ -16,3 +16,4 @@ for (const result of results) {
 }
 const { imported, slots } = await importListings({ db, dgis, results });
 console.log(`Google results: ${results.length}. Free slots: ${slots}. Imported: ${imported}.`);
+await db.close();

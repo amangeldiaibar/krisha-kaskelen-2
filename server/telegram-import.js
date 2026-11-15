@@ -1,6 +1,7 @@
 import { Api } from 'telegram';
 import { config } from './config.js';
-import { openDb } from './db.js';
+import { openDatabase } from './open-db.js';
+import { sniffImage } from './images.js';
 import { createDgis } from './services/dgis.js';
 import { addListingPhotos, saveImports } from './services/importer.js';
 import { adFingerprint, cleanPost, createGeminiExtractor, groupAlbums, textFingerprint, MAX_NEW_ADS_PER_RUN, MAX_PHOTOS_PER_AD, MAX_POSTS_PER_CHANNEL, postsToListings, SEARCH_TERMS } from './services/telegram.js';
@@ -37,7 +38,7 @@ async function findChannels() {
   return [...found.keys()].slice(0, MAX_CHANNELS);
 }
 
-const db = openDb(config.dbPath);
+const db = await openDatabase();
 const dgis = createDgis({ key: config.dgisKey, db });
 const { uploadsDir } = config;
 
@@ -68,13 +69,13 @@ for (const username of await findChannels()) {
 posts.sort((a, b) => b.date - a.date);
 
 // Ads already on the site skip the AI.
-const findExisting = db.prepare(`SELECT id FROM listings WHERE source_type = 'import' AND source_url = ?`);
-const fresh = posts.filter((post) => !findExisting.get(`https://t.me/${post.username}/${post.messageId}`));
+const onSiteUrls = new Set((await db.all(`SELECT source_url FROM listings WHERE source_type = 'import'`)).map((row) => row.source_url));
+// An ad without photos is not shown, so such posts never reach the AI.
+const fresh = posts.filter((post) => post.photos.length > 0 && !onSiteUrls.has(`https://t.me/${post.username}/${post.messageId}`));
 
 // Every Telegram ad on the site gets the photos it is missing, even when its
 // post is older than the messages read above. An album sits next to its text.
-const countPhotos = db.prepare('SELECT COUNT(*) AS n FROM photos WHERE listing_id = ?');
-const telegramAds = db.prepare(`SELECT id, source_url FROM listings WHERE source_type = 'import' AND source_name LIKE 't.me/%'`).all();
+const telegramAds = await db.all(`SELECT id, source_url FROM listings WHERE source_type = 'import' AND source_name LIKE 't.me/%'`);
 for (const ad of telegramAds) {
   const match = ad.source_url.match(/^https:\/\/t\.me\/([\w]+)\/(\d+)$/);
   if (!match) continue;
@@ -83,9 +84,9 @@ for (const ad of telegramAds) {
     const ids = Array.from({ length: 21 }, (_, offset) => Number(id) - 10 + offset);
     const nearby = (await client.getMessages(username, { ids })).filter(Boolean);
     const post = groupAlbums(nearby).find((item) => item.messageId === Number(id));
-    const have = countPhotos.get(ad.id).n;
+    const { n: have } = await db.get('SELECT COUNT(*) AS n FROM photos WHERE listing_id = $1', [ad.id]);
     if (post && have < Math.min(post.photos.length, MAX_PHOTOS_PER_AD)) {
-      const kept = addListingPhotos({ db, listingId: ad.id, buffers: await downloadPhotos(post.photos, have), uploadsDir });
+      const kept = await addListingPhotos({ db, listingId: ad.id, buffers: await downloadPhotos(post.photos, have), uploadsDir });
       console.log(`photos ${ad.source_url}  +${kept}`);
     }
   } catch (error) {
@@ -93,8 +94,15 @@ for (const ad of telegramAds) {
   }
 }
 
+// Telegram ads that still have no photo leave the site.
+const bare = await db.all(
+  `DELETE FROM listings WHERE source_type = 'import' AND source_name LIKE 't.me/%'
+     AND NOT EXISTS (SELECT 1 FROM photos WHERE photos.listing_id = listings.id) RETURNING source_url`,
+);
+for (const { source_url: url } of bare) console.log(`removed ${url}  no photos`);
+
 // Reposts are common in these groups, so ads on the site count as already seen.
-const onSite = db.prepare(`SELECT rooms, price, address, description FROM listings WHERE source_type = 'import'`).all();
+const onSite = await db.all(`SELECT rooms, price, address, description FROM listings WHERE source_type = 'import'`);
 const seenTexts = new Set(onSite.map((row) => textFingerprint(cleanPost(row.description))));
 const seenAds = new Set(onSite.map(adFingerprint));
 
@@ -108,13 +116,15 @@ const { prepared, calls } = await postsToListings({
 });
 // Photos are ready before the ad is saved, so moderation always sees them.
 for (const item of prepared) item.buffers = await downloadPhotos(item.post.photos);
-const saved = saveImports({ db, prepared, slots: Infinity, uploadsDir });
+const withPhotos = prepared.filter((item) => item.buffers.some((buffer) => sniffImage(buffer)));
+const saved = await saveImports({ db, prepared: withPhotos, slots: Infinity, uploadsDir });
 let photoCount = 0;
 for (const item of saved) {
-  const kept = addListingPhotos({ db, listingId: item.listingId, buffers: item.buffers, uploadsDir });
+  const kept = await addListingPhotos({ db, listingId: item.listingId, buffers: item.buffers, uploadsDir });
   photoCount += kept;
   console.log(`added  ${item.sourceUrl}  ${item.title}  ${item.price} KZT  photos: ${kept}`);
 }
 console.log(`Posts: ${posts.length}. New: ${fresh.length}. Checked by AI: ${calls}. Imported: ${saved.length}. Photos: ${photoCount}.`);
 await client.disconnect();
+await db.close();
 process.exit(0);

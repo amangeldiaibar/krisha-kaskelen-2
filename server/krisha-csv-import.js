@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
-import { openDb } from './db.js';
+import { openDatabase } from './open-db.js';
 import { createDgis } from './services/dgis.js';
 import { importKrisha, parseCsv } from './services/krishaCsv.js';
 
@@ -14,9 +14,10 @@ if (!fs.existsSync(csvPath)) {
 }
 
 const rows = parseCsv(fs.readFileSync(csvPath, 'utf8'));
-const db = openDb(config.dbPath);
+const db = await openDatabase();
 const dgis = createDgis({ key: config.dgisKey, db });
 const result = await importKrisha({ db, rows, photosDir, uploadsDir: config.uploadsDir, geocode: dgis.geocode });
-console.log(`Rows: ${rows.length}. Imported: ${result.imported}. Old test and imported ads removed: ${result.removed}. Photos: ${result.photos}.`);
+console.log(`Rows: ${rows.length}. Imported: ${result.imported}. Earlier krisha.kz and test ads removed: ${result.removed}. Photos: ${result.photos}.`);
 if (result.imported === 0) console.log('Nothing usable was found, so the site was left as it was.');
 else console.log('The ads go through AI moderation and appear on the site after it, a few at a time.');
+await db.close();

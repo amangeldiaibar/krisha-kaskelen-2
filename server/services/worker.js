@@ -5,14 +5,12 @@ export function createWorker({ db, dgis, moderator, log = console }) {
   let running = false;
 
   async function geocodeMissing() {
-    const rows = db
-      .prepare(`SELECT id, address FROM listings WHERE lat IS NULL AND address IS NOT NULL LIMIT ?`)
-      .all(BATCH_SIZE);
+    const rows = await db.all('SELECT id, address FROM listings WHERE lat IS NULL AND address IS NOT NULL LIMIT $1', [BATCH_SIZE]);
     for (const row of rows) {
       try {
         const point = await dgis.geocode(row.address);
         if (point) {
-          db.prepare('UPDATE listings SET lat = ?, lon = ? WHERE id = ?').run(point.lat, point.lon, row.id);
+          await db.run('UPDATE listings SET lat = $1, lon = $2 WHERE id = $3', [point.lat, point.lon, row.id]);
         }
       } catch (error) {
         log.warn(`Geocoding listing ${row.id} failed: ${error.message}`);
@@ -23,29 +21,32 @@ export function createWorker({ db, dgis, moderator, log = console }) {
 
   async function moderatePending() {
     if (!moderator) return;
-    const listings = db.prepare(`SELECT * FROM listings WHERE status = 'pending' LIMIT ?`).all(BATCH_SIZE);
+    // The edit time is read as text, so the check below compares it exactly, to the microsecond.
+    const listings = await db.all(`SELECT *, updated_at::text AS edited FROM listings WHERE status = 'pending' LIMIT $1`, [BATCH_SIZE]);
     for (const listing of listings) {
       try {
-        const photos = db.prepare('SELECT filename, mime FROM photos WHERE listing_id = ?').all(listing.id);
+        const photos = await db.all('SELECT filename, mime FROM photos WHERE listing_id = $1', [listing.id]);
         const verdict = await moderator.moderateListing(listing, photos);
-        db.prepare(
-          `UPDATE listings SET status = ?, moderation_reason = ? WHERE id = ? AND updated_at = ?`,
-        ).run(verdict.decision === 'approve' ? 'approved' : 'rejected', verdict.reason, listing.id, listing.updated_at);
+        // An edit made while the AI was thinking keeps the listing pending for a fresh check.
+        await db.run(
+          'UPDATE listings SET status = $1, moderation_reason = $2 WHERE id = $3 AND updated_at::text = $4',
+          [verdict.decision === 'approve' ? 'approved' : 'rejected', verdict.reason, listing.id, listing.edited],
+        );
       } catch (error) {
         log.warn(`Moderating listing ${listing.id} failed: ${error.message}`);
       }
     }
-    const reviews = db.prepare(`SELECT * FROM reviews WHERE status = 'pending' LIMIT ?`).all(BATCH_SIZE);
+    const reviews = await db.all(`SELECT * FROM reviews WHERE status = 'pending' LIMIT $1`, [BATCH_SIZE]);
     for (const review of reviews) {
       try {
-        const listing = db.prepare('SELECT title, address FROM listings WHERE id = ?').get(review.listing_id);
+        const listing = await db.get('SELECT title, address FROM listings WHERE id = $1', [review.listing_id]);
         const verdict = await moderator.moderateReview(review, listing);
-        db.prepare(`UPDATE reviews SET status = ?, moderation_reason = ? WHERE id = ? AND text = ?`).run(
+        await db.run('UPDATE reviews SET status = $1, moderation_reason = $2 WHERE id = $3 AND text = $4', [
           verdict.decision === 'approve' ? 'approved' : 'rejected',
           verdict.reason,
           review.id,
           review.text,
-        );
+        ]);
       } catch (error) {
         log.warn(`Moderating review ${review.id} failed: ${error.message}`);
       }

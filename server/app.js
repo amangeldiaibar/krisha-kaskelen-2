@@ -5,7 +5,7 @@ import express from 'express';
 import multer from 'multer';
 import { rateLimit } from 'express-rate-limit';
 import { SDU } from './config.js';
-import { transaction } from './db.js';
+import { isUniqueViolation } from './db.js';
 import { distanceKm } from './geo.js';
 import { COOKIE, USER_COLUMNS, createSession, destroySession, hashPassword, loadUser, readCookie, requireUser, verifyPassword } from './auth.js';
 import { normalizePhone } from './phone.js';
@@ -31,6 +31,13 @@ const toInt = (value, min, max) => {
   if (value === undefined || value === null || value === '') return null;
   const number = Number(value);
   return Number.isInteger(number) && number >= min && number <= max ? number : undefined;
+};
+
+/** An id from the URL. Anything that cannot be a row id is simply not found. */
+const idParam = (value) => {
+  const id = toInt(value, 1, 2_147_483_647);
+  if (!id) throw new HttpError(404, 'not_found');
+  return id;
 };
 
 function validateListing(body) {
@@ -91,16 +98,21 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
   const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: authRateLimit, standardHeaders: true, legacyHeaders: false, message: { error: 'too_many_requests' } });
   const mapLimiter = rateLimit({ windowMs: 60 * 1000, limit: 1200, standardHeaders: true, legacyHeaders: false, message: { error: 'too_many_requests' } });
 
-  const setSession = (res, userId) => {
-    const { token, maxAge } = createSession(db, userId);
+  const setSession = async (res, userId) => {
+    const { token, maxAge } = await createSession(db, userId);
     res.cookie(COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: secureCookies, maxAge, path: '/' });
   };
 
-  const photosOf = (id) =>
-    db.prepare('SELECT filename FROM photos WHERE listing_id = ? ORDER BY position').all(id).map((photo) => `/uploads/${photo.filename}`);
+  const photosOf = async (id) =>
+    (await db.all('SELECT filename FROM photos WHERE listing_id = $1 ORDER BY position', [id])).map((photo) => `/uploads/${photo.filename}`);
 
-  function present(row, userId, includeModeration = false) {
+  async function present(row, userId, includeModeration = false) {
     const point = row.lat !== null && row.lon !== null ? { lat: row.lat, lon: row.lon } : null;
+    const [photos, myRequest, favorite] = await Promise.all([
+      photosOf(row.id),
+      userId ? db.get('SELECT id, status FROM deal_requests WHERE listing_id = $1 AND requester_id = $2 ORDER BY id DESC LIMIT 1', [row.id, userId]) : null,
+      userId ? db.get('SELECT 1 FROM favorites WHERE user_id = $1 AND listing_id = $2', [userId, row.id]) : null,
+    ]);
     return {
       id: row.id,
       title: row.title,
@@ -118,45 +130,46 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
       point,
       distanceKm: point ? Math.round(distanceKm(SDU, point) * 10) / 10 : null,
       source: { type: row.source_type, name: row.source_name, url: row.source_url },
-      photos: photosOf(row.id),
+      photos,
       photosAreExamples: row.source_type === 'test',
       isOwner: Boolean(userId && row.user_id === userId),
       canChat: Boolean(row.user_id && row.user_id !== userId),
       dealStatus: row.deal_status,
       canRequest: Boolean(row.user_id && row.user_id !== userId && row.deal_status === 'available' && row.status === 'approved'),
-      myRequest: userId
-        ? (db
-            .prepare('SELECT id, status FROM deal_requests WHERE listing_id = ? AND requester_id = ? ORDER BY id DESC LIMIT 1')
-            .get(row.id, userId) ?? null)
-        : null,
-      isFavorite: userId
-        ? Boolean(db.prepare('SELECT 1 FROM favorites WHERE user_id = ? AND listing_id = ?').get(userId, row.id))
-        : false,
+      myRequest: myRequest ?? null,
+      isFavorite: Boolean(favorite),
       ...(includeModeration ? { status: row.status, moderationReason: row.moderation_reason } : {}),
     };
   }
 
-  const findVisible = (id, user) => {
-    const row = db.prepare('SELECT * FROM listings WHERE id = ?').get(id);
+  const presentAll = (rows, userId, includeModeration) => Promise.all(rows.map((row) => present(row, userId, includeModeration)));
+
+  const findVisible = async (id, user) => {
+    const row = await db.get('SELECT * FROM listings WHERE id = $1', [idParam(id)]);
     if (!row) throw new HttpError(404, 'not_found');
     if (row.status !== 'approved' && row.user_id !== user?.id) throw new HttpError(404, 'not_found');
     return row;
   };
 
-  function savePhotos(listingId, files) {
+  /** Replaces a listing's photos. Old files are deleted only after the transaction commits. */
+  async function savePhotos(tx, listingId, files) {
     const prepared = files.map((file) => {
       const type = sniffImage(file.buffer);
       if (!type) throw new HttpError(422, 'invalid_photo');
       return { ...type, buffer: file.buffer, filename: `${crypto.randomUUID()}.${type.ext}` };
     });
-    const old = db.prepare('SELECT filename FROM photos WHERE listing_id = ?').all(listingId);
-    db.prepare('DELETE FROM photos WHERE listing_id = ?').run(listingId);
-    prepared.forEach((photo, position) => {
+    const old = await tx.all('SELECT filename FROM photos WHERE listing_id = $1', [listingId]);
+    await tx.run('DELETE FROM photos WHERE listing_id = $1', [listingId]);
+    for (const [position, photo] of prepared.entries()) {
       fs.writeFileSync(path.join(uploadsDir, photo.filename), photo.buffer);
-      db.prepare('INSERT INTO photos (listing_id, filename, mime, position) VALUES (?, ?, ?, ?)').run(listingId, photo.filename, photo.mime, position);
-    });
-    for (const { filename } of old) fs.rmSync(path.join(uploadsDir, filename), { force: true });
+      await tx.run('INSERT INTO photos (listing_id, filename, mime, position) VALUES ($1, $2, $3, $4)', [listingId, photo.filename, photo.mime, position]);
+    }
+    return old.map(({ filename }) => filename);
   }
+
+  const removeFiles = (filenames) => {
+    for (const filename of filenames) fs.rmSync(path.join(uploadsDir, filename), { force: true });
+  };
 
   /** A failed 2GIS call still saves the listing, and the worker retries the lookup. */
   async function locate(address) {
@@ -173,7 +186,7 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
   }
 
   // Auth
-  const publicUser = (id) => db.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE id = ?`).get(id);
+  const publicUser = (id) => db.get(`SELECT ${USER_COLUMNS} FROM users WHERE id = $1`, [id]);
 
   app.post('/api/auth/register', authLimiter, async (req, res) => {
     const name = String(req.body?.name ?? '').trim();
@@ -187,33 +200,33 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
     const hash = await hashPassword(password);
     let id;
     try {
-      id = db.prepare('INSERT INTO users (name, phone, email, password_hash) VALUES (?, ?, ?, ?)').run(name, phone, email, hash).lastInsertRowid;
+      ({ id } = await db.get('INSERT INTO users (name, phone, email, password_hash) VALUES ($1, $2, $3, $4) RETURNING id', [name, phone, email, hash]));
     } catch (error) {
-      if (String(error.message).includes('UNIQUE')) throw new HttpError(409, 'account_exists');
+      if (isUniqueViolation(error)) throw new HttpError(409, 'account_exists');
       throw error;
     }
-    setSession(res, Number(id));
-    res.status(201).json({ user: publicUser(id) });
+    await setSession(res, id);
+    res.status(201).json({ user: await publicUser(id) });
   });
 
   app.post('/api/auth/login', authLimiter, async (req, res) => {
     const login = String(req.body?.login ?? '').trim();
     const password = String(req.body?.password ?? '');
-    const user = db.prepare('SELECT * FROM users WHERE email = ? OR phone = ?').get(login, normalizePhone(login) ?? login);
+    const user = await db.get('SELECT * FROM users WHERE lower(email) = lower($1) OR phone = $2', [login, normalizePhone(login) ?? login]);
     if (!user || !(await verifyPassword(password, user.password_hash))) throw new HttpError(401, 'bad_credentials');
-    setSession(res, user.id);
-    res.json({ user: publicUser(user.id) });
+    await setSession(res, user.id);
+    res.json({ user: await publicUser(user.id) });
   });
 
-  app.post('/api/auth/logout', (req, res) => {
-    destroySession(db, readCookie(req, COOKIE));
+  app.post('/api/auth/logout', async (req, res) => {
+    await destroySession(db, readCookie(req, COOKIE));
     res.clearCookie(COOKIE, { path: '/' });
     res.status(204).end();
   });
 
   app.get('/api/auth/me', (req, res) => res.json({ user: req.user }));
 
-  app.put('/api/auth/profile', requireUser, upload.single('photo'), (req, res) => {
+  app.put('/api/auth/profile', requireUser, upload.single('photo'), async (req, res) => {
     const name = String(req.body?.name ?? '').trim();
     const phone = normalizePhone(req.body?.phone);
     if (name.length < 2 || name.length > 100) throw Object.assign(new HttpError(422, 'invalid_field'), { field: 'name' });
@@ -221,160 +234,149 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
     const type = req.file ? sniffImage(req.file.buffer) : null;
     if (req.file && !type) throw new HttpError(422, 'invalid_photo');
 
-    const old = db.prepare('SELECT avatar FROM users WHERE id = ?').get(req.user.id).avatar;
+    const { avatar: old } = await db.get('SELECT avatar FROM users WHERE id = $1', [req.user.id]);
     let avatar = req.body?.removePhoto === '1' ? null : old;
     if (type) {
       avatar = `${crypto.randomUUID()}.${type.ext}`;
       fs.writeFileSync(path.join(uploadsDir, avatar), req.file.buffer);
     }
     try {
-      db.prepare('UPDATE users SET name = ?, phone = ?, avatar = ? WHERE id = ?').run(name, phone, avatar, req.user.id);
+      await db.run('UPDATE users SET name = $1, phone = $2, avatar = $3 WHERE id = $4', [name, phone, avatar, req.user.id]);
     } catch (error) {
       if (type) fs.rmSync(path.join(uploadsDir, avatar), { force: true });
-      if (String(error.message).includes('UNIQUE')) throw new HttpError(409, 'account_exists');
+      if (isUniqueViolation(error)) throw new HttpError(409, 'account_exists');
       throw error;
     }
     if (old && old !== avatar) fs.rmSync(path.join(uploadsDir, old), { force: true });
-    res.json({ user: publicUser(req.user.id) });
+    res.json({ user: await publicUser(req.user.id) });
   });
 
   app.post('/api/auth/password', authLimiter, requireUser, async (req, res) => {
     const password = String(req.body?.password ?? '');
     if (password.length < 8 || password.length > 200) throw Object.assign(new HttpError(422, 'invalid_field'), { field: 'password' });
-    const { password_hash: hash } = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
+    const { password_hash: hash } = await db.get('SELECT password_hash FROM users WHERE id = $1', [req.user.id]);
     if (!(await verifyPassword(String(req.body?.current ?? ''), hash))) throw new HttpError(403, 'wrong_password');
-    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(await hashPassword(password), req.user.id);
+    const newHash = await hashPassword(password);
     // Every other device is logged out, and this one gets a fresh session.
-    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(req.user.id);
-    setSession(res, req.user.id);
+    await db.transaction(async (tx) => {
+      await tx.run('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, req.user.id]);
+      await tx.run('DELETE FROM sessions WHERE user_id = $1', [req.user.id]);
+    });
+    await setSession(res, req.user.id);
     res.status(204).end();
   });
 
   // Listings
-  app.get('/api/listings', (req, res) => {
+  app.get('/api/listings', async (req, res) => {
     const where = [`status = 'approved'`, `deal_status = 'available'`];
     const params = [];
+    // Adds a value and returns its numbered placeholder.
+    const param = (value) => `$${params.push(value)}`;
     const { deal, rooms, priceFrom, priceTo, yearFrom, yearTo, district } = req.query;
-    if (deal === 'rent' || deal === 'buy') {
-      where.push('deal = ?');
-      params.push(deal);
-    }
+    if (deal === 'rent' || deal === 'buy') where.push(`deal = ${param(deal)}`);
     if (rooms === '3+') where.push('rooms >= 3');
-    else if (toInt(rooms, 0, 4) !== null && toInt(rooms, 0, 4) !== undefined) {
-      where.push('rooms = ?');
-      params.push(Number(rooms));
-    }
+    else if (toInt(rooms, 0, 4) !== null && toInt(rooms, 0, 4) !== undefined) where.push(`rooms = ${param(Number(rooms))}`);
     const range = (value, clause) => {
       const number = toInt(value, 0, 10_000_000_000);
-      if (number !== null && number !== undefined) {
-        where.push(clause);
-        params.push(number);
-      }
+      if (number !== null && number !== undefined) where.push(`${clause} ${param(number)}`);
     };
-    range(priceFrom, 'price >= ?');
-    range(priceTo, 'price <= ?');
-    range(yearFrom, 'year >= ?');
-    range(yearTo, 'year <= ?');
-    if (DISTRICTS.has(district)) {
-      where.push('district = ?');
-      params.push(district);
-    }
-    const rows = db.prepare(`SELECT * FROM listings WHERE ${where.join(' AND ')} ORDER BY id DESC`).all(...params);
+    range(priceFrom, 'price >=');
+    range(priceTo, 'price <=');
+    range(yearFrom, 'year >=');
+    range(yearTo, 'year <=');
+    if (DISTRICTS.has(district)) where.push(`district = ${param(district)}`);
+    const rows = await db.all(`SELECT * FROM listings WHERE ${where.join(' AND ')} ORDER BY id DESC`, params);
     res.json({
       sdu: { lat: SDU.lat, lon: SDU.lon },
-      items: rows
-        .map((row) => present(row, req.user?.id))
-        .sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity)),
+      items: (await presentAll(rows, req.user?.id)).sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity)),
     });
   });
 
-  app.get('/api/listings/mine', requireUser, (req, res) => {
-    const rows = db.prepare('SELECT * FROM listings WHERE user_id = ? ORDER BY id DESC').all(req.user.id);
-    res.json({ items: rows.map((row) => present(row, req.user.id, true)) });
+  app.get('/api/listings/mine', requireUser, async (req, res) => {
+    const rows = await db.all('SELECT * FROM listings WHERE user_id = $1 ORDER BY id DESC', [req.user.id]);
+    res.json({ items: await presentAll(rows, req.user.id, true) });
   });
 
-  app.get('/api/listings/:id', (req, res) => {
-    const row = findVisible(req.params.id, req.user);
-    res.json({ sdu: { lat: SDU.lat, lon: SDU.lon }, item: present(row, req.user?.id, row.user_id === req.user?.id) });
+  app.get('/api/listings/:id', async (req, res) => {
+    const row = await findVisible(req.params.id, req.user);
+    res.json({ sdu: { lat: SDU.lat, lon: SDU.lon }, item: await present(row, req.user?.id, row.user_id === req.user?.id) });
   });
 
   app.post('/api/listings', requireUser, upload.array('photos', 10), async (req, res) => {
     const listing = validateListing(req.body);
     const point = await locate(listing.address);
-    const id = transaction(db, () => {
-      const inserted = db
-        .prepare(
-          `INSERT INTO listings (user_id, source_type, title, deal, price, rooms, area, floor, floors, year, district, address, description, phone, lat, lon, moderation_lang)
-           VALUES (?, 'app', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(req.user.id, listing.title, listing.deal, listing.price, listing.rooms, listing.area, listing.floor, listing.floors, listing.year, listing.district, listing.address, listing.description, listing.phone, point.lat, point.lon, langOf(req));
-      const newId = Number(inserted.lastInsertRowid);
-      savePhotos(newId, req.files ?? []);
+    const id = await db.transaction(async (tx) => {
+      const { id: newId } = await tx.get(
+        `INSERT INTO listings (user_id, source_type, title, deal, price, rooms, area, floor, floors, year, district, address, description, phone, lat, lon, moderation_lang)
+         VALUES ($1, 'app', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
+        [req.user.id, listing.title, listing.deal, listing.price, listing.rooms, listing.area, listing.floor, listing.floors, listing.year, listing.district, listing.address, listing.description, listing.phone, point.lat, point.lon, langOf(req)],
+      );
+      await savePhotos(tx, newId, req.files ?? []);
       return newId;
     });
     onContentChanged();
-    res.status(201).json({ item: present(db.prepare('SELECT * FROM listings WHERE id = ?').get(id), req.user.id, true) });
+    res.status(201).json({ item: await present(await db.get('SELECT * FROM listings WHERE id = $1', [id]), req.user.id, true) });
   });
 
   app.put('/api/listings/:id', requireUser, upload.array('photos', 10), async (req, res) => {
-    const row = db.prepare('SELECT * FROM listings WHERE id = ?').get(req.params.id);
+    const row = await db.get('SELECT * FROM listings WHERE id = $1', [idParam(req.params.id)]);
     if (!row) throw new HttpError(404, 'not_found');
     if (row.user_id !== req.user.id) throw new HttpError(403, 'forbidden');
     const listing = validateListing(req.body);
     const point = listing.address === row.address && row.lat !== null ? { lat: row.lat, lon: row.lon } : await locate(listing.address);
-    transaction(db, () => {
-      db.prepare(
-        `UPDATE listings SET title = ?, deal = ?, price = ?, rooms = ?, area = ?, floor = ?, floors = ?, year = ?, district = ?, address = ?, description = ?, phone = ?, lat = ?, lon = ?,
-           status = 'pending', moderation_reason = NULL, moderation_lang = ?, updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = ?`,
-      ).run(listing.title, listing.deal, listing.price, listing.rooms, listing.area, listing.floor, listing.floors, listing.year, listing.district, listing.address, listing.description, listing.phone, point.lat, point.lon, langOf(req), row.id);
-      if (req.files?.length) savePhotos(row.id, req.files);
+    const oldFiles = await db.transaction(async (tx) => {
+      await tx.run(
+        `UPDATE listings SET title = $1, deal = $2, price = $3, rooms = $4, area = $5, floor = $6, floors = $7, year = $8, district = $9, address = $10, description = $11, phone = $12, lat = $13, lon = $14,
+           status = 'pending', moderation_reason = NULL, moderation_lang = $15, updated_at = clock_timestamp() WHERE id = $16`,
+        [listing.title, listing.deal, listing.price, listing.rooms, listing.area, listing.floor, listing.floors, listing.year, listing.district, listing.address, listing.description, listing.phone, point.lat, point.lon, langOf(req), row.id],
+      );
+      return req.files?.length ? savePhotos(tx, row.id, req.files) : [];
     });
+    removeFiles(oldFiles);
     onContentChanged();
-    res.json({ item: present(db.prepare('SELECT * FROM listings WHERE id = ?').get(row.id), req.user.id, true) });
+    res.json({ item: await present(await db.get('SELECT * FROM listings WHERE id = $1', [row.id]), req.user.id, true) });
   });
 
-  app.delete('/api/listings/:id', requireUser, (req, res) => {
-    const row = db.prepare('SELECT id, user_id FROM listings WHERE id = ?').get(req.params.id);
+  app.delete('/api/listings/:id', requireUser, async (req, res) => {
+    const row = await db.get('SELECT id, user_id FROM listings WHERE id = $1', [idParam(req.params.id)]);
     if (!row) throw new HttpError(404, 'not_found');
     if (row.user_id !== req.user.id) throw new HttpError(403, 'forbidden');
-    const files = db.prepare('SELECT filename FROM photos WHERE listing_id = ?').all(row.id);
+    const files = await db.all('SELECT filename FROM photos WHERE listing_id = $1', [row.id]);
     // Foreign keys remove its photos, reviews, favorites, requests and chats.
-    db.prepare('DELETE FROM listings WHERE id = ?').run(row.id);
-    for (const { filename } of files) fs.rmSync(path.join(uploadsDir, filename), { force: true });
+    await db.run('DELETE FROM listings WHERE id = $1', [row.id]);
+    removeFiles(files.map(({ filename }) => filename));
     res.status(204).end();
   });
 
   // Favorites
-  app.get('/api/favorites', requireUser, (req, res) => {
-    const rows = db
-      .prepare(
-        `SELECT listings.* FROM favorites JOIN listings ON listings.id = favorites.listing_id
-         WHERE favorites.user_id = ? AND listings.status = 'approved' ORDER BY favorites.created_at DESC`,
-      )
-      .all(req.user.id);
-    res.json({ items: rows.map((row) => present(row, req.user.id)) });
+  app.get('/api/favorites', requireUser, async (req, res) => {
+    const rows = await db.all(
+      `SELECT listings.* FROM favorites JOIN listings ON listings.id = favorites.listing_id
+       WHERE favorites.user_id = $1 AND listings.status = 'approved' ORDER BY favorites.created_at DESC`,
+      [req.user.id],
+    );
+    res.json({ items: await presentAll(rows, req.user.id) });
   });
 
-  app.put('/api/favorites/:id', requireUser, (req, res) => {
-    const row = findVisible(req.params.id, req.user);
-    db.prepare('INSERT OR IGNORE INTO favorites (user_id, listing_id) VALUES (?, ?)').run(req.user.id, row.id);
+  app.put('/api/favorites/:id', requireUser, async (req, res) => {
+    const row = await findVisible(req.params.id, req.user);
+    await db.run('INSERT INTO favorites (user_id, listing_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.user.id, row.id]);
     res.status(204).end();
   });
 
-  app.delete('/api/favorites/:id', requireUser, (req, res) => {
-    db.prepare('DELETE FROM favorites WHERE user_id = ? AND listing_id = ?').run(req.user.id, req.params.id);
+  app.delete('/api/favorites/:id', requireUser, async (req, res) => {
+    await db.run('DELETE FROM favorites WHERE user_id = $1 AND listing_id = $2', [req.user.id, idParam(req.params.id)]);
     res.status(204).end();
   });
 
   // Reviews
   app.get('/api/listings/:id/reviews', async (req, res) => {
-    const listing = findVisible(req.params.id, req.user);
-    const rows = db
-      .prepare(
-        `SELECT reviews.*, users.name AS author FROM reviews JOIN users ON users.id = reviews.user_id
-         WHERE listing_id = ? AND (status = 'approved' OR user_id = ?) ORDER BY reviews.id DESC`,
-      )
-      .all(listing.id, req.user?.id ?? -1);
+    const listing = await findVisible(req.params.id, req.user);
+    const rows = await db.all(
+      `SELECT reviews.*, users.name AS author FROM reviews JOIN users ON users.id = reviews.user_id
+       WHERE listing_id = $1 AND (status = 'approved' OR user_id = $2) ORDER BY reviews.id DESC`,
+      [listing.id, req.user?.id ?? -1],
+    );
     let external = { status: 'no_match', rating: null, count: 0, reviews: [] };
     if (listing.address) {
       try {
@@ -400,23 +402,22 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
     });
   });
 
-  app.post('/api/listings/:id/reviews', requireUser, (req, res) => {
-    const listing = findVisible(req.params.id, req.user);
+  app.post('/api/listings/:id/reviews', requireUser, async (req, res) => {
+    const listing = await findVisible(req.params.id, req.user);
     if (listing.user_id === req.user.id) throw new HttpError(403, 'own_listing_review');
     if (listing.status !== 'approved') throw new HttpError(404, 'not_found');
     const text = String(req.body?.text ?? '').trim();
     if (text.length < 5 || text.length > 2000) throw Object.assign(new HttpError(422, 'invalid_field'), { field: 'text' });
     const lang = langOf(req);
     // Only a rejected review may be rewritten, so nobody gets a second published one.
-    const result = db
-      .prepare(
-        `INSERT INTO reviews (listing_id, user_id, text, moderation_lang) VALUES (?, ?, ?, ?)
-         ON CONFLICT (listing_id, user_id) DO UPDATE
-           SET text = excluded.text, moderation_lang = excluded.moderation_lang, status = 'pending', moderation_reason = NULL
-           WHERE reviews.status = 'rejected'`,
-      )
-      .run(listing.id, req.user.id, text, lang);
-    if (result.changes === 0) throw new HttpError(409, 'review_exists');
+    const changed = await db.run(
+      `INSERT INTO reviews (listing_id, user_id, text, moderation_lang) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (listing_id, user_id) DO UPDATE
+         SET text = excluded.text, moderation_lang = excluded.moderation_lang, status = 'pending', moderation_reason = NULL
+         WHERE reviews.status = 'rejected'`,
+      [listing.id, req.user.id, text, lang],
+    );
+    if (changed === 0) throw new HttpError(409, 'review_exists');
     onContentChanged();
     res.status(201).json({ status: 'pending' });
   });
@@ -440,31 +441,28 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
     });
   });
 
-  const addMessage = (conversationId, senderId, text) => {
-    const { lastInsertRowid } = db.prepare('INSERT INTO messages (conversation_id, sender_id, text) VALUES (?, ?, ?)').run(conversationId, senderId, text);
-    return Number(lastInsertRowid);
-  };
+  const addMessage = async (tx, conversationId, senderId, text) =>
+    (await tx.get('INSERT INTO messages (conversation_id, sender_id, text) VALUES ($1, $2, $3) RETURNING id', [conversationId, senderId, text])).id;
 
-  function announceMessage(conversationId) {
-    const { renter_id: renterId, owner_id: ownerId } = db
-      .prepare(
-        `SELECT conversations.renter_id, listings.user_id AS owner_id FROM conversations
-         JOIN listings ON listings.id = conversations.listing_id WHERE conversations.id = ?`,
-      )
-      .get(conversationId);
+  async function announceMessage(conversationId) {
+    const { renter_id: renterId, owner_id: ownerId } = await db.get(
+      `SELECT conversations.renter_id, listings.user_id AS owner_id FROM conversations
+       JOIN listings ON listings.id = conversations.listing_id WHERE conversations.id = $1`,
+      [conversationId],
+    );
     for (const userId of new Set([renterId, ownerId])) {
       for (const stream of streams.get(userId) ?? []) stream.write(`data: ${JSON.stringify({ type: 'message', conversationId })}\n\n`);
     }
   }
 
   // Rent and purchase requests
-  const openConversation = (listingId, renterId) => {
-    db.prepare('INSERT OR IGNORE INTO conversations (listing_id, renter_id) VALUES (?, ?)').run(listingId, renterId);
-    return db.prepare('SELECT id FROM conversations WHERE listing_id = ? AND renter_id = ?').get(listingId, renterId).id;
+  const openConversation = async (tx, listingId, renterId) => {
+    await tx.run('INSERT INTO conversations (listing_id, renter_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [listingId, renterId]);
+    return (await tx.get('SELECT id FROM conversations WHERE listing_id = $1 AND renter_id = $2', [listingId, renterId])).id;
   };
 
-  app.post('/api/listings/:id/requests', requireUser, (req, res) => {
-    const listing = findVisible(req.params.id, req.user);
+  app.post('/api/listings/:id/requests', requireUser, async (req, res) => {
+    const listing = await findVisible(req.params.id, req.user);
     if (listing.user_id === req.user.id) throw new HttpError(403, 'own_listing_deal');
     if (!listing.user_id) throw new HttpError(422, 'deal_unavailable');
     if (listing.status !== 'approved') throw new HttpError(404, 'not_found');
@@ -479,27 +477,28 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
     }
 
     let conversationId = null;
-    const id = transaction(db, () => {
-      let inserted;
-      try {
-        inserted = db
-          .prepare('INSERT INTO deal_requests (listing_id, requester_id, preferred_date, message) VALUES (?, ?, ?, ?)')
-          .run(listing.id, req.user.id, date, message || null);
-      } catch (error) {
-        if (String(error.message).includes('UNIQUE')) throw new HttpError(409, 'request_exists');
-        throw error;
-      }
-      if (message) {
-        conversationId = openConversation(listing.id, req.user.id);
-        addMessage(conversationId, req.user.id, message);
-      }
-      return Number(inserted.lastInsertRowid);
-    });
-    if (conversationId) announceMessage(conversationId);
+    let id;
+    try {
+      id = await db.transaction(async (tx) => {
+        const inserted = await tx.get(
+          'INSERT INTO deal_requests (listing_id, requester_id, preferred_date, message) VALUES ($1, $2, $3, $4) RETURNING id',
+          [listing.id, req.user.id, date, message || null],
+        );
+        if (message) {
+          conversationId = await openConversation(tx, listing.id, req.user.id);
+          await addMessage(tx, conversationId, req.user.id, message);
+        }
+        return inserted.id;
+      });
+    } catch (error) {
+      if (isUniqueViolation(error)) throw new HttpError(409, 'request_exists');
+      throw error;
+    }
+    if (conversationId) await announceMessage(conversationId);
     res.status(201).json({ id, status: 'pending' });
   });
 
-  app.get('/api/requests', requireUser, (req, res) => {
+  app.get('/api/requests', requireUser, async (req, res) => {
     const columns = `deal_requests.id, deal_requests.status, deal_requests.preferred_date, deal_requests.message, deal_requests.requester_id,
       listings.id AS listing_id, listings.title, listings.deal, listings.price`;
     const toJson = (row) => ({
@@ -510,118 +509,115 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
       listing: { id: row.listing_id, title: row.title, deal: row.deal, price: row.price },
       person: { name: row.person_name, phone: row.person_phone },
     });
-    const incoming = db
-      .prepare(
+    const [incoming, outgoing] = await Promise.all([
+      db.all(
         `SELECT ${columns}, users.name AS person_name, users.phone AS person_phone FROM deal_requests
          JOIN listings ON listings.id = deal_requests.listing_id
          JOIN users ON users.id = deal_requests.requester_id
-         WHERE listings.user_id = ? ORDER BY deal_requests.status = 'pending' DESC, deal_requests.id DESC`,
-      )
-      .all(req.user.id);
-    const outgoing = db
-      .prepare(
+         WHERE listings.user_id = $1 ORDER BY deal_requests.status = 'pending' DESC, deal_requests.id DESC`,
+        [req.user.id],
+      ),
+      db.all(
         `SELECT ${columns}, users.name AS person_name, users.phone AS person_phone FROM deal_requests
          JOIN listings ON listings.id = deal_requests.listing_id
          JOIN users ON users.id = listings.user_id
-         WHERE deal_requests.requester_id = ? ORDER BY deal_requests.id DESC`,
-      )
-      .all(req.user.id);
+         WHERE deal_requests.requester_id = $1 ORDER BY deal_requests.id DESC`,
+        [req.user.id],
+      ),
+    ]);
     res.json({ incoming: incoming.map(toJson), outgoing: outgoing.map(toJson) });
   });
 
-  const requestFor = (id) => {
-    const row = db
-      .prepare(
-        `SELECT deal_requests.*, listings.user_id AS owner_id FROM deal_requests
-         JOIN listings ON listings.id = deal_requests.listing_id WHERE deal_requests.id = ?`,
-      )
-      .get(id);
+  const requestFor = async (id) => {
+    const row = await db.get(
+      `SELECT deal_requests.*, listings.user_id AS owner_id FROM deal_requests
+       JOIN listings ON listings.id = deal_requests.listing_id WHERE deal_requests.id = $1`,
+      [idParam(id)],
+    );
     if (!row) throw new HttpError(404, 'not_found');
     return row;
   };
-  const ownerRequest = (req) => {
-    const row = requestFor(req.params.id);
+  const ownerRequest = async (req) => {
+    const row = await requestFor(req.params.id);
     if (row.owner_id !== req.user.id) throw new HttpError(404, 'not_found');
     if (row.status !== 'pending') throw new HttpError(409, 'request_not_pending');
     return row;
   };
 
-  app.post('/api/requests/:id/accept', requireUser, (req, res) => {
-    const row = ownerRequest(req);
-    transaction(db, () => {
-      db.prepare(`UPDATE deal_requests SET status = 'accepted' WHERE id = ?`).run(row.id);
-      db.prepare(`UPDATE deal_requests SET status = 'declined' WHERE listing_id = ? AND status = 'pending'`).run(row.listing_id);
-      db.prepare(`UPDATE listings SET deal_status = 'closed' WHERE id = ?`).run(row.listing_id);
+  app.post('/api/requests/:id/accept', requireUser, async (req, res) => {
+    const row = await ownerRequest(req);
+    await db.transaction(async (tx) => {
+      await tx.run(`UPDATE deal_requests SET status = 'accepted' WHERE id = $1`, [row.id]);
+      await tx.run(`UPDATE deal_requests SET status = 'declined' WHERE listing_id = $1 AND status = 'pending'`, [row.listing_id]);
+      await tx.run(`UPDATE listings SET deal_status = 'closed' WHERE id = $1`, [row.listing_id]);
     });
     res.json({ status: 'accepted' });
   });
 
-  app.post('/api/requests/:id/decline', requireUser, (req, res) => {
-    const row = ownerRequest(req);
-    db.prepare(`UPDATE deal_requests SET status = 'declined' WHERE id = ?`).run(row.id);
+  app.post('/api/requests/:id/decline', requireUser, async (req, res) => {
+    const row = await ownerRequest(req);
+    await db.run(`UPDATE deal_requests SET status = 'declined' WHERE id = $1`, [row.id]);
     res.json({ status: 'declined' });
   });
 
-  app.post('/api/requests/:id/cancel', requireUser, (req, res) => {
-    const row = requestFor(req.params.id);
+  app.post('/api/requests/:id/cancel', requireUser, async (req, res) => {
+    const row = await requestFor(req.params.id);
     if (row.requester_id !== req.user.id) throw new HttpError(404, 'not_found');
     if (row.status !== 'pending') throw new HttpError(409, 'request_not_pending');
-    db.prepare(`UPDATE deal_requests SET status = 'cancelled' WHERE id = ?`).run(row.id);
+    await db.run(`UPDATE deal_requests SET status = 'cancelled' WHERE id = $1`, [row.id]);
     res.json({ status: 'cancelled' });
   });
 
-  app.post('/api/listings/:id/reopen', requireUser, (req, res) => {
-    const row = db.prepare('SELECT * FROM listings WHERE id = ?').get(req.params.id);
+  app.post('/api/listings/:id/reopen', requireUser, async (req, res) => {
+    const row = await db.get('SELECT * FROM listings WHERE id = $1', [idParam(req.params.id)]);
     if (!row) throw new HttpError(404, 'not_found');
     if (row.user_id !== req.user.id) throw new HttpError(403, 'forbidden');
-    transaction(db, () => {
-      db.prepare(`UPDATE listings SET deal_status = 'available' WHERE id = ?`).run(row.id);
-      db.prepare(`UPDATE deal_requests SET status = 'cancelled' WHERE listing_id = ? AND status = 'accepted'`).run(row.id);
+    await db.transaction(async (tx) => {
+      await tx.run(`UPDATE listings SET deal_status = 'available' WHERE id = $1`, [row.id]);
+      await tx.run(`UPDATE deal_requests SET status = 'cancelled' WHERE listing_id = $1 AND status = 'accepted'`, [row.id]);
     });
     res.json({ dealStatus: 'available' });
   });
 
   // Chat
-  const conversationFor = (id, userId) => {
-    const row = db
-      .prepare(
-        `SELECT conversations.*, listings.title, listings.user_id AS owner_id FROM conversations
-         JOIN listings ON listings.id = conversations.listing_id WHERE conversations.id = ?`,
-      )
-      .get(id);
+  const conversationFor = async (id, userId) => {
+    const row = await db.get(
+      `SELECT conversations.*, listings.title, listings.user_id AS owner_id FROM conversations
+       JOIN listings ON listings.id = conversations.listing_id WHERE conversations.id = $1`,
+      [idParam(id)],
+    );
     if (!row || (row.renter_id !== userId && row.owner_id !== userId)) throw new HttpError(404, 'not_found');
     return row;
   };
 
-  app.post('/api/listings/:id/conversation', requireUser, (req, res) => {
-    const listing = findVisible(req.params.id, req.user);
+  app.post('/api/listings/:id/conversation', requireUser, async (req, res) => {
+    const listing = await findVisible(req.params.id, req.user);
     if (!listing.user_id) throw new HttpError(422, 'chat_unavailable');
     if (listing.user_id === req.user.id) throw new HttpError(403, 'own_listing_chat');
-    res.status(201).json({ id: openConversation(listing.id, req.user.id) });
+    res.status(201).json({ id: await openConversation(db, listing.id, req.user.id) });
   });
 
-  app.get('/api/conversations', requireUser, (req, res) => {
-    const rows = db
-      .prepare(
-        `SELECT conversations.id, listings.id AS listing_id, listings.title,
-           CASE WHEN conversations.renter_id = ? THEN owner.name ELSE renter.name END AS other_name,
-           (SELECT text FROM messages WHERE conversation_id = conversations.id ORDER BY id DESC LIMIT 1) AS last_message
-         FROM conversations
-         JOIN listings ON listings.id = conversations.listing_id
-         JOIN users renter ON renter.id = conversations.renter_id
-         JOIN users owner ON owner.id = listings.user_id
-         WHERE conversations.renter_id = ? OR listings.user_id = ?
-         ORDER BY conversations.id DESC`,
-      )
-      .all(req.user.id, req.user.id, req.user.id);
+  app.get('/api/conversations', requireUser, async (req, res) => {
+    const rows = await db.all(
+      `SELECT conversations.id, listings.id AS listing_id, listings.title,
+         CASE WHEN conversations.renter_id = $1 THEN owner.name ELSE renter.name END AS other_name,
+         (SELECT text FROM messages WHERE conversation_id = conversations.id ORDER BY id DESC LIMIT 1) AS last_message
+       FROM conversations
+       JOIN listings ON listings.id = conversations.listing_id
+       JOIN users renter ON renter.id = conversations.renter_id
+       JOIN users owner ON owner.id = listings.user_id
+       WHERE conversations.renter_id = $1 OR listings.user_id = $1
+       ORDER BY conversations.id DESC`,
+      [req.user.id],
+    );
     res.json({
       items: rows.map((row) => ({ id: row.id, listingId: row.listing_id, title: row.title, otherName: row.other_name, lastMessage: row.last_message })),
     });
   });
 
-  app.get('/api/conversations/:id/messages', requireUser, (req, res) => {
-    const conversation = conversationFor(req.params.id, req.user.id);
-    const rows = db.prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY id').all(conversation.id);
+  app.get('/api/conversations/:id/messages', requireUser, async (req, res) => {
+    const conversation = await conversationFor(req.params.id, req.user.id);
+    const rows = await db.all('SELECT * FROM messages WHERE conversation_id = $1 ORDER BY id', [conversation.id]);
     res.json({
       title: conversation.title,
       listingId: conversation.listing_id,
@@ -629,12 +625,12 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
     });
   });
 
-  app.post('/api/conversations/:id/messages', requireUser, (req, res) => {
-    const conversation = conversationFor(req.params.id, req.user.id);
+  app.post('/api/conversations/:id/messages', requireUser, async (req, res) => {
+    const conversation = await conversationFor(req.params.id, req.user.id);
     const text = String(req.body?.text ?? '').trim();
     if (text.length < 1 || text.length > 2000) throw Object.assign(new HttpError(422, 'invalid_field'), { field: 'text' });
-    const id = addMessage(conversation.id, req.user.id, text);
-    announceMessage(conversation.id);
+    const id = await addMessage(db, conversation.id, req.user.id, text);
+    await announceMessage(conversation.id);
     res.status(201).json({ id, text, isMine: true });
   });
 

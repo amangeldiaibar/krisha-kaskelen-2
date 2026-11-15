@@ -22,18 +22,14 @@ export async function verifyPassword(password, stored) {
 
 const tokenHash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
-export function createSession(db, userId) {
+export async function createSession(db, userId) {
   const token = crypto.randomBytes(32).toString('hex');
-  db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(
-    tokenHash(token),
-    userId,
-    Date.now() + SESSION_MS,
-  );
+  await db.run('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ($1, $2, $3)', [tokenHash(token), userId, Date.now() + SESSION_MS]);
   return { token, maxAge: SESSION_MS };
 }
 
-export function destroySession(db, token) {
-  if (token) db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash(token));
+export async function destroySession(db, token) {
+  if (token) await db.run('DELETE FROM sessions WHERE token_hash = $1', [tokenHash(token)]);
 }
 
 export function readCookie(req, name) {
@@ -45,18 +41,17 @@ export function readCookie(req, name) {
 }
 
 export function loadUser(db) {
-  return (req, _res, next) => {
+  return async (req, _res, next) => {
     req.user = null;
     const token = readCookie(req, COOKIE);
     if (token) {
       req.user =
-        db
-          .prepare(
-            `SELECT ${USER_COLUMNS} FROM sessions
-             JOIN users ON users.id = sessions.user_id
-             WHERE sessions.token_hash = ? AND sessions.expires_at > ?`,
-          )
-          .get(tokenHash(token), Date.now()) ?? null;
+        (await db.get(
+          `SELECT ${USER_COLUMNS} FROM sessions
+           JOIN users ON users.id = sessions.user_id
+           WHERE sessions.token_hash = $1 AND sessions.expires_at > $2`,
+          [tokenHash(token), Date.now()],
+        )) ?? null;
     }
     next();
   };

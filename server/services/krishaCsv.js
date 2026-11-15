@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { transaction } from '../db.js';
 import { addListingPhotos } from './importer.js';
 import { cleanPost } from './telegram.js';
 
@@ -94,10 +93,10 @@ export function photoFiles(photosDir, krishaId) {
     .map((name) => path.join(folder, name));
 }
 
-/**
- * Makes krisha.kz the only source of ads: every other import and test ad is
- * removed, while ads people posted on this site stay.
- */
+/** Ads that a new krisha.kz file replaces. Telegram ads and ads people posted stay. */
+const REPLACED = `source_type = 'test' OR (source_type = 'import' AND source_name = 'krisha.kz')`;
+
+/** Replaces earlier krisha.kz ads and test ads with the ads from the parser's file. */
 export async function importKrisha({ db, rows, photosDir, uploadsDir, geocode }) {
   const listings = [];
   const seen = new Set();
@@ -117,26 +116,26 @@ export async function importKrisha({ db, rows, photosDir, uploadsDir, geocode })
   }
   if (listings.length === 0) return { imported: 0, removed: 0, photos: 0 };
 
-  const oldFiles = db
-    .prepare(`SELECT photos.filename FROM photos JOIN listings ON listings.id = photos.listing_id WHERE listings.source_type IN ('import', 'test')`)
-    .all();
-  const inserted = transaction(db, () => {
-    const removed = db.prepare(`DELETE FROM listings WHERE source_type IN ('import', 'test')`).run().changes;
-    const insert = db.prepare(
-      `INSERT INTO listings (source_type, source_name, source_url, title, deal, price, rooms, area, floor, floors, address, description, lat, lon, status)
-       VALUES ('import', 'krisha.kz', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-    );
-    const ids = listings.map((item) =>
-      Number(insert.run(item.sourceUrl, item.title, item.deal, item.price, item.rooms, item.area, item.floor, item.floors, item.address, item.description, item.lat, item.lon).lastInsertRowid),
-    );
+  const oldFiles = await db.all(`SELECT photos.filename FROM photos JOIN listings ON listings.id = photos.listing_id WHERE ${REPLACED}`);
+  const inserted = await db.transaction(async (tx) => {
+    const removed = await tx.run(`DELETE FROM listings WHERE ${REPLACED}`);
+    const ids = [];
+    for (const item of listings) {
+      const { id } = await tx.get(
+        `INSERT INTO listings (source_type, source_name, source_url, title, deal, price, rooms, area, floor, floors, address, description, lat, lon, status)
+         VALUES ('import', 'krisha.kz', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending') RETURNING id`,
+        [item.sourceUrl, item.title, item.deal, item.price, item.rooms, item.area, item.floor, item.floors, item.address, item.description, item.lat, item.lon],
+      );
+      ids.push(id);
+    }
     return { removed, ids };
   });
   for (const { filename } of oldFiles) fs.rmSync(path.join(uploadsDir, filename), { force: true });
 
   let photos = 0;
-  listings.forEach((item, index) => {
+  for (const [index, item] of listings.entries()) {
     const buffers = photoFiles(photosDir, item.krishaId).map((file) => fs.readFileSync(file));
-    photos += addListingPhotos({ db, listingId: inserted.ids[index], buffers, uploadsDir });
-  });
+    photos += await addListingPhotos({ db, listingId: inserted.ids[index], buffers, uploadsDir });
+  }
   return { imported: listings.length, removed: inserted.removed, photos };
 }

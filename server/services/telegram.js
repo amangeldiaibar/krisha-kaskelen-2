@@ -2,7 +2,8 @@ import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
 
 export const SEARCH_TERMS = ['Каскелен аренда', 'Каскелен квартира', 'Каскелен жилье', 'SDU жилье', 'Қаскелең пәтер'];
-export const MAX_POSTS_PER_CHANNEL = 400;
+// A busy channel gets about 400 messages a week, so this reaches back a few weeks.
+export const MAX_POSTS_PER_CHANNEL = 2000;
 export const MAX_AI_CALLS_PER_RUN = 40;
 export const MAX_NEW_ADS_PER_RUN = 12;
 export const MAX_PHOTOS_PER_AD = 10;
