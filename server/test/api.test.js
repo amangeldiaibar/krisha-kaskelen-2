@@ -390,10 +390,10 @@ describe('deleting a listing', () => {
 });
 
 describe('phone limits', () => {
-  it('stores one format and rejects numbers of the wrong length', async () => {
+  it('stores one format per country and rejects unknown codes and wrong lengths', async () => {
     const call = client();
     const body = { name: 'Тест Тестов', email: 'p@example.com', password: 'password123' };
-    for (const phone of ['1'.repeat(500), '+7 700 123', '+7 700 123 45 67 89', 'abc', '+1 700 123 45 67']) {
+    for (const phone of ['1'.repeat(500), '+7 700 123', '+7 700 123 45 67 89', 'abc', '+999 700 123 45 67', '+996 555 123 45']) {
       const res = await call('/api/auth/register', { method: 'POST', json: { ...body, phone } });
       assert.equal(res.status, 422, phone);
       assert.equal(res.data.field, 'phone');
@@ -401,6 +401,13 @@ describe('phone limits', () => {
     const ok = await call('/api/auth/register', { method: 'POST', json: { ...body, phone: '8 (700) 123-45-67' } });
     assert.equal(ok.data.user.phone, '+7 700 123 45 67');
     assert.equal((await client()('/api/auth/login', { method: 'POST', json: { login: '87001234567', password: 'password123' } })).status, 200);
+    const abroad = await client()('/api/auth/register', { method: 'POST', json: { ...body, email: 'kg@example.com', phone: '+996 (555) 123-456' } });
+    assert.equal(abroad.data.user.phone, '+996 555 123 456');
+    assert.equal((await client()('/api/auth/login', { method: 'POST', json: { login: '+996555123456', password: 'password123' } })).status, 200);
+    for (const [phone, stored] of [['+1 212 555 0100', '+1 212 555 0100'], ['+90 532 123 45 67', '+90 532 123 45 67'], ['+7 912 345 67 89', '+7 912 345 67 89']]) {
+      const res = await client()('/api/auth/register', { method: 'POST', json: { ...body, email: `${stored.replace(/\D/g, '')}@example.com`, phone } });
+      assert.equal(res.data.user.phone, stored);
+    }
     const owner = await newUser();
     assert.equal((await owner('/api/listings', { method: 'POST', body: form({ phone: '7'.repeat(40) }) })).data.field, 'phone');
   });

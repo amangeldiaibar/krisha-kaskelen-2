@@ -609,3 +609,10 @@ button.ph { border: 0; padding: 0; cursor: zoom-in; font: inherit; color: inheri
   .lang a { padding: 4px 6px; }
   .profile-name { max-width: 60px; }
 }
+
+/* Phone field: country code picker and the number */
+.phone-field { display: grid; grid-template-columns: minmax(0, 150px) 1fr; gap: 8px; }
+.phone-field select { text-overflow: ellipsis; }
+@media (max-width: 480px) {
+  .phone-field { grid-template-columns: minmax(0, 112px) 1fr; }
+}

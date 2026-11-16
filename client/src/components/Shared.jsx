@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { LANGS, LANG_LABELS, translate } from '../i18n.js';
 import { useAuth, useFetch, useI18n, usePolling, useToast } from '../context.jsx';
-import { PHONE_PATTERN, PHONE_PREFIX, formatPhoneInput } from '../phone.js';
+import { COUNTRIES, countryByIso, countryOf, flagOf, formatNational, nationalOf, nationalPattern, phoneExample } from '../phone.js';
 
 export function Layout() {
   const { lang } = useParams();
@@ -106,26 +106,54 @@ function ProfileMenu() {
   );
 }
 
-/** Keeps a phone number in one format and stops at its full length. */
+/**
+ * A country picker with its dialling code, and the rest of the number next to it.
+ * The value stays one string, such as "+7 700 000 00 00".
+ */
 export function PhoneInput({ value, onChange, name = 'phone', ...props }) {
-  const { t } = useI18n();
-  const set = (next) => onChange({ target: { name, value: next } });
+  const { t, lang } = useI18n();
+  const [chosen, setChosen] = useState(null);
+  const country = countryOf(value, chosen);
+  const national = nationalOf(value, country);
+  const names = useMemo(() => {
+    try {
+      return new Intl.DisplayNames([lang], { type: 'region' });
+    } catch {
+      return null;
+    }
+  }, [lang]);
+  const set = (next, target = country) => onChange({ target: { name, value: next ? `+${target.code} ${next}` : '' } });
+  const hint = t('phoneHint', { n: phoneExample(country) });
   return (
     <>
-      <input
-        {...props}
-        name={name}
-        type="tel"
-        inputMode="tel"
-        value={value}
-        pattern={PHONE_PATTERN}
-        title={t('phoneHint')}
-        placeholder="+7 700 000 00 00"
-        onFocus={() => { if (!value) set(PHONE_PREFIX); }}
-        onBlur={() => { if (value === PHONE_PREFIX) set(''); }}
-        onChange={(event) => set(formatPhoneInput(event.target.value, value) || PHONE_PREFIX)}
-      />
-      <span className="hint">{t('phoneHint')}</span>
+      <span className="phone-field">
+        <select
+          value={country.iso}
+          aria-label={t('phoneCountry')}
+          autoComplete="tel-country-code"
+          onChange={(event) => {
+            const next = countryByIso(event.target.value);
+            setChosen(next.iso);
+            set(formatNational(national.replace(/\D/g, ''), next), next);
+          }}
+        >
+          {COUNTRIES.map((item) => (
+            <option key={item.iso} value={item.iso}>{flagOf(item.iso)} +{item.code} {names?.of(item.iso) ?? item.iso}</option>
+          ))}
+        </select>
+        <input
+          {...props}
+          name={name}
+          type="tel"
+          inputMode="tel"
+          value={national}
+          pattern={nationalPattern(country)}
+          title={hint}
+          placeholder={phoneExample(country).slice(country.code.length + 2)}
+          onChange={(event) => set(formatNational(event.target.value, country, national))}
+        />
+      </span>
+      <span className="hint">{hint}</span>
     </>
   );
 }

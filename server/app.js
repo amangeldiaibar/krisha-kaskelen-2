@@ -8,7 +8,7 @@ import { SDU } from './config.js';
 import { isUniqueViolation } from './db.js';
 import { distanceKm } from './geo.js';
 import { COOKIE, USER_COLUMNS, createSession, destroySession, hashPassword, loadUser, readCookie, requireUser, verifyPassword } from './auth.js';
-import { normalizePhone } from './phone.js';
+import { normalizePhone } from '../shared/phones.js';
 import { sniffImage } from './images.js';
 import { DgisError } from './services/dgis.js';
 

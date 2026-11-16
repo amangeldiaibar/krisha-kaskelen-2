@@ -99,7 +99,7 @@ A request does not take payment or create a contract. It passes contact details 
 ## How it works
 
 - **2GIS key:** it stays on the server. The browser gets the map picture from `/api/map/image` and draws the pins itself.
-- **Phone numbers:** the site and the server accept only 11-digit Kazakhstan numbers.
+- **Phone numbers:** a phone field has a country picker with dialling codes. The site and the server accept full mobile numbers of the countries listed in `shared/phones.js` and store them in one format, such as `+7 700 000 00 00`. A number typed without a plus sign is read as a Kazakhstan one.
 - **Moderation:** it runs in the background every 30 seconds and right after a submission. With a key set, an item with no decision stays hidden. Phone numbers are never sent to the AI provider.
 - **Import:** it keeps only the title and short text from Google results and removes phone numbers. krisha.kz pages are never requested, because the site blocks automated access, so its ads come only from Google's text and their map position is approximate. The krisha.kz agreement forbids copying without written permission, so remove these ads before any public launch.
 - **Old pages:** the original static site is in `legacy-static/`.

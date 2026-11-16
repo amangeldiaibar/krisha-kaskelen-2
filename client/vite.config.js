@@ -10,6 +10,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    // The phone formats in ../shared are used by both the site and the server.
+    fs: { allow: ['..'] },
     proxy: { '/api': 'http://localhost:3000', '/uploads': 'http://localhost:3000' },
   },
   build: { outDir: 'dist', emptyOutDir: true },

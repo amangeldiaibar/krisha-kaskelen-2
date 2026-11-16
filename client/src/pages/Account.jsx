@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth, useFetch, useI18n, useLiveChat, usePolling, useToast } from '../context.jsx';
-import { formatPhoneInput } from '../phone.js';
 import { Avatar, DeleteListingButton, ListingCard, PhoneInput, RequireLogin, SkeletonCards, Status, formatPrice } from '../components/Shared.jsx';
 
 function FavoritesBody() {
@@ -195,7 +194,7 @@ function ProfileForm() {
   const { t, tError } = useI18n();
   const { user, setUser } = useAuth();
   const toast = useToast();
-  const [values, setValues] = useState({ name: user.name, phone: formatPhoneInput(user.phone) });
+  const [values, setValues] = useState({ name: user.name, phone: user.phone });
   const [photo, setPhoto] = useState(null);
   const [removePhoto, setRemovePhoto] = useState(false);
   const [preview, setPreview] = useState(null);

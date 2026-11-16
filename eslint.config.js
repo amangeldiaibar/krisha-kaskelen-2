@@ -6,7 +6,7 @@ export default [
   { ignores: ['client/dist/', 'legacy-static/', 'node_modules/', 'data/'] },
   js.configs.recommended,
   {
-    files: ['server/**/*.js', '*.config.js', 'client/vite.config.js'],
+    files: ['server/**/*.js', 'shared/**/*.js', '*.config.js', 'client/vite.config.js'],
     languageOptions: { globals: globals.node },
   },
   {
