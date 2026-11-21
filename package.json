@@ -12,7 +12,6 @@
     "start": "npm run build && concurrently -n db,site --kill-others-on-fail \"node server/local-db.js\" \"node server/index.js\"",
     "db": "node server/local-db.js",
     "db:import-sqlite": "node server/sqlite-to-postgres.js",
-    "import": "node server/import-cli.js",
     "telegram:login": "node server/telegram-login.js",
     "telegram:qr": "node server/telegram-qr.js",
     "import:telegram": "node server/telegram-import.js",

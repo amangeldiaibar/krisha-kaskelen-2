@@ -29,7 +29,6 @@ export const config = {
   dgisKey: process.env.DGIS_API_KEY || '',
   geminiKey: process.env.GEMINI_API_KEY || '',
   moderationModel: process.env.MODERATION_MODEL || DEFAULT_GEMINI_MODEL,
-  serpApiKey: process.env.SERPAPI_KEY || '',
   telegram: {
     apiId: Number(process.env.TELEGRAM_API_ID || 0),
     apiHash: process.env.TELEGRAM_API_HASH || '',

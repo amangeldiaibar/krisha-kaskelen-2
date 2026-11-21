@@ -15,7 +15,7 @@ import { DgisError, createDgis } from '../services/dgis.js';
 import { createOsmGeocoder } from '../services/osm.js';
 import { createGeminiModerator, createUncheckedModerator, ModerationUnavailable, NO_AI_KEY_REASON } from '../services/moderation.js';
 import { createWorker } from '../services/worker.js';
-import { addListingPhotos, importListings, isBlockedUrl, parseResult, saveImports } from '../services/importer.js';
+import { addListingPhotos, saveImports } from '../services/importer.js';
 import { cleanPost, groupAlbums, looksLikeRental, postsToListings, toListing } from '../services/telegram.js';
 import { addressKey, compareListings, findDuplicatePairs } from '../services/duplicates.js';
 import { createSearchParser, parseQueryRules } from '../services/search.js';
@@ -617,67 +617,6 @@ describe('moderation worker', () => {
   });
 });
 
-describe('importer', () => {
-  const good = { title: 'Сдам 2-комнатную квартиру 48 м², 130 000 тг', snippet: 'Каскелен, ул. Баталы 25. Звоните +7 701 123 45 67', link: 'https://example.kz/ad/1' };
-
-  const krisha = { title: 'Аренда 1-комнатной квартиры', snippet: '«Крыша» - объявление №1014527990 об аренде квартиры: 1-комнатная квартира за 65000 , Абылайхана 1 — Абылайхана сду, Каскелен. Снять ...', link: 'https://krisha.kz/a/show/1014527990?source=x' };
-
-  it('reads krisha.kz ads only from the Google text, without phones', () => {
-    const parsed = parseResult(krisha);
-    assert.equal(parsed.price, 65000);
-    assert.equal(parsed.rooms, 1);
-    assert.equal(parsed.address, 'Абылайхана 1');
-    assert.equal(parsed.approximate, false);
-    assert.equal(parsed.sourceName, 'krisha.kz');
-    assert.equal(parsed.sourceUrl, 'https://krisha.kz/a/show/1014527990');
-    assert.equal(/1014527990/.test(parsed.description), false);
-    assert.equal(parseResult({ ...krisha, snippet: '1-комнатная квартира за 180000 , Сду — Рядом сду, Каскелен.' }), null);
-    assert.equal(parseResult({ ...krisha, snippet: 'Звоните' }), null);
-    assert.equal(parseResult({ ...good, link: 'https://krisha.kz/arenda/kvartiry/' }), null);
-    assert.equal(isBlockedUrl('https://kolesa.kz/x'), true);
-  });
-
-  it('extracts fields, removes phones and skips results without an address', () => {
-    const parsed = parseResult(good);
-    assert.equal(parsed.price, 130000);
-    assert.equal(parsed.rooms, 2);
-    assert.equal(parsed.area, 48);
-    assert.match(parsed.address, /Баталы 25/);
-    assert.equal(parsed.sourceName, 'example.kz');
-    assert.equal(/701/.test(parsed.description), false);
-    assert.equal(parseResult({ title: 'Снять квартиру в Каскелене, 88 объявлений', snippet: 'от 50 000 тг', link: 'https://example.kz/list' }), null);
-    assert.equal(parseResult({ ...good, link: 'javascript:alert(1)' }), null);
-  });
-
-  it('skips search pages and junk addresses', () => {
-    assert.equal(parseResult({ title: 'квартира каскелен сду - Недвижимость Алматинская', snippet: 'ул - 1, 25 200 000 тг', link: 'https://www.olx.kz/nedvizhimost/q-x/' }), null);
-    assert.equal(parseResult({ title: 'Сдам квартиру', snippet: 'ул - 1, 100 000 тг', link: 'https://example.kz/ad/2' }), null);
-    assert.equal(parseResult({ title: 'Продам дом, ул. Баталы 25', snippet: '25 200 000 тг', link: 'https://example.kz/ad/3' }), null);
-    const domler = parseResult({ title: '1-комнатная квартира, 30 м², 1 этаж помесячно, Баталы 25 - Район Сду', snippet: '110 000 ₸', link: 'https://domler.kz/ad-1.html' });
-    assert.match(domler.address, /Баталы 25/);
-    assert.match(parseResult({ title: '2-комнатная, Квартал9 43', snippet: '130 000 тг', link: 'https://domler.kz/ad-2.html' }).address, /Квартал9 43/);
-  });
-
-  it('keeps older imports when there is still room', async () => {
-    const results = [1].map((n) => ({ ...good, link: `https://example.kz/ad/${n}` }));
-    await importListings({ db, dgis, results });
-    await importListings({ db, dgis, results: [{ ...good, link: 'https://example.kz/ad/9' }] });
-    assert.equal((await db.get(`SELECT COUNT(*) AS n FROM listings WHERE source_type = 'import'`)).n, 2);
-  });
-
-  it('stays at five listings, leaves app listings alone and sends imports to moderation', async () => {
-    const owner = await newUser();
-    for (let i = 0; i < 3; i += 1) await owner('/api/listings', { method: 'POST', body: form({ floor: String(i + 1) }) });
-    const results = [1, 2, 3, 4].map((n) => ({ ...good, link: `https://example.kz/ad/${n}` }));
-    assert.equal((await importListings({ db, dgis, results })).imported, 2);
-    assert.equal((await importListings({ db, dgis, results })).imported, 2);
-    assert.equal((await db.get('SELECT COUNT(*) AS n FROM listings')).n, 5);
-    assert.equal((await db.get(`SELECT COUNT(*) AS n FROM listings WHERE source_type = 'app'`)).n, 3);
-    const imported = (await db.all(`SELECT * FROM listings WHERE source_type = 'import'`));
-    assert.ok(imported.every((row) => row.status === 'pending' && row.phone === null && row.deal === 'rent'));
-  });
-});
-
 describe('telegram import', () => {
   const ad = 'Сдаётся 1-комнатная квартира, ул. Баталы 25, 120 000 тг. Звоните +7 701 123 45 67 или @owner_name https://t.me/somebody';
   const post = (over = {}) => ({ username: 'kaskelen_rent', messageId: 7, text: ad, date: new Date(), ...over });
@@ -770,13 +709,14 @@ describe('telegram import', () => {
     assert.equal(posts[1].photos.length, 0);
   });
 
-  it('stores only real images and keeps Telegram ads when search imports are replaced', async () => {
-    const item = { title: 'Квартира', description: 'Описание', price: 1000, rooms: 1, area: null, address: 'Баталы', lat: 43.2, lon: 76.6 };
-    const [saved] = await saveImports({ db, prepared: [{ ...item, sourceName: 't.me/x', sourceUrl: 'https://t.me/x/1' }], slots: Infinity, uploadsDir: tmp });
+  it('stores only real images and replaces a repost of the same Telegram ad', async () => {
+    const item = { title: 'Квартира', description: 'Описание', price: 1000, rooms: 1, area: null, address: 'Баталы', lat: 43.2, lon: 76.6, sourceName: 't.me/x', sourceUrl: 'https://t.me/x/1' };
+    const [saved] = await saveImports({ db, prepared: [item], uploadsDir: tmp });
     const kept = await addListingPhotos({ db, listingId: saved.listingId, buffers: [PNG, Buffer.from('<html>')], uploadsDir: tmp });
     assert.equal(kept, 1);
-    await saveImports({ db, prepared: [{ ...item, sourceName: 'example.kz', sourceUrl: 'https://example.kz/1' }], slots: 1, uploadsDir: tmp });
-    assert.equal((await db.get(`SELECT COUNT(*) AS n FROM listings WHERE source_url = 'https://t.me/x/1'`)).n, 1);
+    const [again] = await saveImports({ db, prepared: [{ ...item, price: 1200 }], uploadsDir: tmp });
+    const rows = await db.all(`SELECT id, price FROM listings WHERE source_url = 'https://t.me/x/1'`);
+    assert.deepEqual(rows.map((row) => [row.id, row.price]), [[again.listingId, 1200]]);
   });
 
   it('skips ads whose address 2GIS cannot place', async () => {

@@ -117,7 +117,7 @@ const { prepared, calls } = await postsToListings({
 // Photos are ready before the ad is saved, so moderation always sees them.
 for (const item of prepared) item.buffers = await downloadPhotos(item.post.photos);
 const withPhotos = prepared.filter((item) => item.buffers.some((buffer) => sniffImage(buffer)));
-const saved = await saveImports({ db, prepared: withPhotos, slots: Infinity, uploadsDir });
+const saved = await saveImports({ db, prepared: withPhotos, uploadsDir });
 let photoCount = 0;
 for (const item of saved) {
   const kept = await addListingPhotos({ db, listingId: item.listingId, buffers: item.buffers, uploadsDir });
