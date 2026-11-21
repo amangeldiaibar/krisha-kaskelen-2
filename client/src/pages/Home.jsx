@@ -233,7 +233,7 @@ export default function Home() {
           {data && (
             <>
               <section className="panel" style={{ marginTop: 0 }}>
-                <ListingsMap items={data.items} sdu={data.sdu} activeId={hoveredId} />
+                <ListingsMap items={data.mapItems ?? data.items} sdu={data.sdu} activeId={hoveredId} />
               </section>
               <h2>{t('found', { n: data.total ?? data.items.length })}</h2>
               {data.items.length === 0 && <p className="state">{t('empty')}</p>}

@@ -504,7 +504,9 @@ describe('map', () => {
 describe('moderation worker', () => {
   async function pendingListing() {
     const owner = await newUser();
-    return (await owner('/api/listings', { method: 'POST', body: form() })).data.item.id;
+    const body = form();
+    body.append('photos', new Blob([PNG], { type: 'image/png' }), 'x.png');
+    return (await owner('/api/listings', { method: 'POST', body })).data.item.id;
   }
   const silent = { warn() {} };
 
@@ -545,9 +547,33 @@ describe('moderation worker', () => {
     assert.equal((await db.get('SELECT status FROM listings WHERE id = $1', [id])).status, 'pending');
   });
 
+  it('refuses ads without photos or a distance to SDU before the AI sees them, and waits for the address lookup', async () => {
+    const withPhoto = await pendingListing();
+    const owner = await newUser();
+    const noPhoto = (await owner('/api/listings', { method: 'POST', body: form({ lang: 'en' }) })).data.item.id;
+    const notFound = await pendingListing();
+    const waiting = await pendingListing();
+    await db.run(`UPDATE listings SET lat = NULL, lon = NULL, geocode_tried_at = now() WHERE id = $1`, [notFound]);
+    await db.run(`UPDATE listings SET lat = NULL, lon = NULL, geocode_tried_at = NULL WHERE id = $1`, [waiting]);
+    const asked = [];
+    const moderator = { moderateListing: async (listing) => { asked.push(listing.id); return { decision: 'approve', reason: 'ok' }; }, moderateReview: async () => ({}) };
+    // A map that is down keeps the last ad waiting instead of refusing it.
+    const downDgis = { geocode: async () => { throw new Error('down'); } };
+    for (let i = 0; i < 5; i += 1) await createWorker({ db, dgis: downDgis, log: silent, moderator }).tick();
+    const row = (id) => db.get('SELECT status, moderation_reason FROM listings WHERE id = $1', [id]);
+    assert.equal((await row(withPhoto)).status, 'approved');
+    assert.deepEqual(await row(noPhoto), { status: 'rejected', moderation_reason: 'Add at least one photo of the flat.' });
+    assert.equal((await row(notFound)).status, 'rejected');
+    assert.match((await row(notFound)).moderation_reason, /SDU/);
+    assert.equal((await row(waiting)).status, 'pending');
+    assert.equal(asked.includes(noPhoto) || asked.includes(notFound) || asked.includes(waiting), false);
+  });
+
   it('pauses 2GIS and the AI after a failure and does not look up an unknown address on every tick', async () => {
     await pendingListing();
     await db.run(`UPDATE listings SET lat = NULL, lon = NULL, geocode_tried_at = NULL`);
+    // This one already has its point, so the AI is asked about it while the others wait for the map.
+    await pendingListing();
     let clock = 0;
     let geocodeCalls = 0;
     let moderateCalls = 0;
@@ -865,7 +891,9 @@ describe('admin panel', () => {
 
   it('keeps the admin decision when the AI answers later', async () => {
     const owner = await newUser();
-    const id = (await owner('/api/listings', { method: 'POST', body: form() })).data.item.id;
+    const body = form();
+    body.append('photos', new Blob([PNG], { type: 'image/png' }), 'x.png');
+    const id = (await owner('/api/listings', { method: 'POST', body })).data.item.id;
     const admin = await newAdmin();
     const moderator = {
       moderateListing: async () => {
@@ -1106,6 +1134,17 @@ describe('search pages', () => {
     assert.equal(last.items[0].price, 100040);
     assert.equal((await client()('/api/listings?page=99')).data.page, 3);
     assert.equal((await client()('/api/listings?page=abc')).data.page, 1);
+  });
+
+  it('maps the ads closest to SDU whatever page and order the list shows', async () => {
+    for (let i = 0; i < 25; i += 1) await addListing({ lat: 43.25, lon: 76.75 });
+    const near = await addListing({ lat: 43.2075, lon: 76.6705 });
+    await addListing({ lat: null, lon: null });
+    const { items, mapItems } = (await client()('/api/listings')).data;
+    assert.equal(items[0].point, null);
+    assert.equal(mapItems.length, 20);
+    assert.equal(mapItems[0].id, near);
+    assert.ok(mapItems.every((item) => item.point));
   });
 
   it('shows the newest ads first unless another order is asked for', async () => {

@@ -1,6 +1,26 @@
 const BATCH_SIZE = 5;
 /** OpenStreetMap allows a request a second, so 20 lookups fit in one 30-second tick. */
 const GEOCODE_BATCH_SIZE = 20;
+/** Ads that are refused before the AI sees them, with the reason in the author's language. */
+const RULE_REASONS = {
+  no_photos: {
+    ru: 'Добавьте хотя бы одно фото квартиры.',
+    en: 'Add at least one photo of the flat.',
+    kk: 'Пәтердің кемінде бір фотосын қосыңыз.',
+  },
+  no_point: {
+    ru: 'Адрес не найден на карте, поэтому расстояние до SDU неизвестно. Уточните адрес.',
+    en: 'The address was not found on the map, so the distance to SDU is unknown. Make the address more precise.',
+    kk: 'Мекенжай картадан табылмады, сондықтан SDU-ға дейінгі қашықтық белгісіз. Мекенжайды нақтылаңыз.',
+  },
+};
+
+/** Why an ad cannot be published whatever the AI says, or null. Search shows only ads with photos and a distance to SDU. */
+export function ruleReason(listing) {
+  const rule = Number(listing.photo_count) === 0 ? 'no_photos' : listing.lat === null ? 'no_point' : null;
+  return rule ? RULE_REASONS[rule][listing.moderation_lang] ?? RULE_REASONS[rule].ru : null;
+}
+
 /** How long to leave 2GIS or the AI alone after a failure, so a blocked key or an overloaded model is not hit every tick. */
 const PAUSE_MS = 10 * 60_000;
 
@@ -34,8 +54,21 @@ export function createWorker({ db, dgis, moderator, log = console, now = Date.no
   async function moderatePending() {
     if (!moderator || now() < moderationPausedUntil) return;
     // The edit time is read as text, so the check below compares it exactly, to the microsecond.
-    const listings = await db.all(`SELECT *, updated_at::text AS edited FROM listings WHERE status = 'pending' LIMIT $1`, [BATCH_SIZE]);
+    // An address not looked up yet waits, so the distance rule below sees the real answer.
+    const listings = await db.all(
+      `SELECT *, updated_at::text AS edited, (SELECT COUNT(*) FROM photos WHERE photos.listing_id = listings.id)::int AS photo_count
+       FROM listings WHERE status = 'pending' AND NOT (lat IS NULL AND address IS NOT NULL AND geocode_tried_at IS NULL) LIMIT $1`,
+      [BATCH_SIZE],
+    );
     for (const listing of listings) {
+      const refused = ruleReason(listing);
+      if (refused) {
+        await db.run(
+          `UPDATE listings SET status = 'rejected', moderation_reason = $1 WHERE id = $2 AND updated_at::text = $3 AND status = 'pending'`,
+          [refused, listing.id, listing.edited],
+        );
+        continue;
+      }
       try {
         const photos = await db.all('SELECT filename, mime FROM photos WHERE listing_id = $1', [listing.id]);
         const verdict = await moderator.moderateListing(listing, photos);
