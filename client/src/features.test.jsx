@@ -257,6 +257,26 @@ describe('admin panel', () => {
     expect(screen.getByTestId('where').textContent).toContain('data=no_point');
   });
 
+  it('makes a user an admin after a confirmation', async () => {
+    const calls = mockApi({
+      '/auth/me': { user: { id: 1, name: 'Admin', role: 'admin' } },
+      '/admin/overview': { pendingListings: 0, rejectedListings: 0, liveListings: 3, pendingReviews: 0, rejectedReviews: 0, openReports: 0, openTickets: 0, users: 2, blockedUsers: 0, duplicatePairs: 0, sources: {} },
+      '/admin/users/2/admin': { role: 'admin' },
+      '/admin/users': { items: [
+        { id: 1, name: 'Admin', email: 'a@x.kz', phone: '+77001112233', role: 'admin', blocked: false, createdAt: '2026-11-20T10:00:00Z', listingCount: 0, reportCount: 0, isMe: true },
+        { id: 2, name: 'Аружан', email: 'b@x.kz', phone: '+77001112244', role: 'user', blocked: false, createdAt: '2026-11-20T10:00:00Z', listingCount: 1, reportCount: 0, isMe: false },
+      ] },
+    });
+    show('/ru/admin?tab=users', <Admin />, '/:lang/admin');
+    // No button on one's own row.
+    const buttons = await screen.findAllByRole('button', { name: 'Назначить администратором' });
+    expect(buttons.length).toBe(1);
+    fireEvent.click(buttons[0]);
+    expect(screen.getByText('Назначить Аружан администратором?')).toBeTruthy();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Назначить администратором' }).at(-1));
+    await waitFor(() => expect(calls.find((call) => call.path === '/admin/users/2/admin')?.body).toEqual({ admin: true }));
+  });
+
   it('shows counts and merges a duplicate pair', async () => {
     const summary = (id, source) => ({ id, title: `Объявление ${id}`, deal: 'rent', price: 120000, rooms: 1, area: 38, floor: null, address: 'Абылай хана 12', description: 'текст', status: 'approved', source, cover: null, owner: null, reportCount: 0, duplicateOf: null, createdAt: '2026-11-20T10:00:00Z' });
     const calls = mockApi({

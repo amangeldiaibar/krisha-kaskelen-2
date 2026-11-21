@@ -90,6 +90,8 @@ npm run admin -- you@example.com
 
 A phone number works too. Add `--remove` to take the rights away. The admin panel then appears in the profile menu. The database must be running.
 
+After that, admins make others admins on the site, as in a Telegram channel: **Users** in the admin panel → **Make admin**, and **Remove from admins** to take it back. Nobody can change their own rights.
+
 ## Ads from krisha.kz
 
 The krisha.kz parser lives in [KrishaParser/](KrishaParser/), taken from [house-pricer](https://github.com/Damenzzzz/house-pricer/tree/main/KrishaParser). Its own README explains setup. Collect ads and load the newest export into the site:

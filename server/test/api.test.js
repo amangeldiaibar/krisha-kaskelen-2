@@ -1370,3 +1370,34 @@ describe('support', () => {
     assert.equal((await person('/api/support', { method: 'POST', json: { topic: 'other', text: 'Ещё одно сообщение' } })).status, 429);
   });
 });
+
+describe('making admins', () => {
+  const idOf = async (call) => (await call('/api/auth/me')).data.user.id;
+
+  it('lets an admin make someone an admin and take it back, but not change their own rights', async () => {
+    const admin = await newAdmin();
+    const person = await newUser();
+    const personId = await idOf(person);
+    assert.equal((await person(`/api/admin/users/${personId}/admin`, { method: 'POST', json: { admin: true } })).status, 403);
+
+    assert.equal((await admin(`/api/admin/users/${personId}/admin`, { method: 'POST', json: { admin: true } })).data.role, 'admin');
+    assert.equal((await person('/api/admin/overview')).status, 200);
+    // The new admin can do the same for others, as in a Telegram channel.
+    const third = await newUser();
+    assert.equal((await person(`/api/admin/users/${await idOf(third)}/admin`, { method: 'POST', json: { admin: true } })).data.role, 'admin');
+
+    assert.equal((await admin(`/api/admin/users/${personId}/admin`, { method: 'POST', json: { admin: false } })).data.role, 'user');
+    assert.equal((await person('/api/admin/overview')).status, 403);
+    assert.equal((await admin(`/api/admin/users/${await idOf(admin)}/admin`, { method: 'POST', json: { admin: false } })).data.error, 'cannot_change_self');
+    const log = (await admin('/api/admin/log')).data.items.map((item) => item.action);
+    assert.ok(log.includes('promote') && log.includes('demote'));
+  });
+
+  it('does not make a blocked person an admin', async () => {
+    const admin = await newAdmin();
+    const person = await newUser();
+    const personId = await idOf(person);
+    await admin(`/api/admin/users/${personId}/block`, { method: 'POST', json: { blocked: true } });
+    assert.equal((await admin(`/api/admin/users/${personId}/admin`, { method: 'POST', json: { admin: true } })).data.error, 'user_blocked');
+  });
+});

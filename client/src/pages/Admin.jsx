@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth, useFetch, useI18n, useToast } from '../context.jsx';
@@ -430,19 +430,46 @@ function UsersTab({ params, setFilter }) {
               <div className="meta">{person.email} · {person.phone} · {date(person.createdAt)}</div>
               <div className="meta">{t('userAds', { n: person.listingCount })}{person.reportCount > 0 ? ` · ${t('reportsCount', { n: person.reportCount })}` : ''}</div>
             </div>
-            {person.role !== 'admin' && (
-              <button
-                className={`btn small ${person.blocked ? 'ghost' : 'danger'}`}
-                type="button"
-                disabled={busy}
-                onClick={() => run(`/admin/users/${person.id}/block`, { body: { blocked: !person.blocked } })}
-              >
-                {person.blocked ? t('unblock') : t('block')}
-              </button>
-            )}
+            <div className="actions">
+              {!person.isMe && !person.blocked && <AdminRoleButton person={person} onDone={reload} />}
+              {person.role !== 'admin' && (
+                <button
+                  className={`btn small ${person.blocked ? 'ghost' : 'danger'}`}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => run(`/admin/users/${person.id}/block`, { body: { blocked: !person.blocked } })}
+                >
+                  {person.blocked ? t('unblock') : t('block')}
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>
+    </>
+  );
+}
+
+/** Makes a person an admin, or takes the rights away, after a confirmation. */
+function AdminRoleButton({ person, onDone }) {
+  const { t } = useI18n();
+  const dialog = useRef(null);
+  const { run, busy } = useAction(onDone);
+  const promote = person.role !== 'admin';
+  const confirm = async () => {
+    if (await run(`/admin/users/${person.id}/admin`, { body: { admin: promote } }, promote ? 'toastPromoted' : 'toastDemoted')) dialog.current?.close();
+  };
+  return (
+    <>
+      <button className="btn ghost small" type="button" onClick={() => dialog.current?.showModal()}>{promote ? t('promoteAdmin') : t('demoteAdmin')}</button>
+      <dialog ref={dialog} className="dialog">
+        <h2>{promote ? t('promoteTitle', { n: person.name }) : t('demoteTitle', { n: person.name })}</h2>
+        <p style={{ marginTop: 10 }}>{promote ? t('promoteText') : t('demoteText')}</p>
+        <div className="actions" style={{ marginTop: 16 }}>
+          <button className={`btn${promote ? '' : ' danger solid'}`} type="button" disabled={busy} onClick={confirm}>{promote ? t('promoteAdmin') : t('demoteAdmin')}</button>
+          <button className="btn ghost" type="button" onClick={() => dialog.current?.close()}>{t('deleteCancel')}</button>
+        </div>
+      </dialog>
     </>
   );
 }

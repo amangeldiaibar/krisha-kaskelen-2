@@ -355,6 +355,20 @@ export function registerAdminRoutes(app, { db, removeFiles, onContentChanged }) 
     res.json({ blocked });
   });
 
+  // Like a Telegram channel: any admin can make someone an admin or take the rights away, but never their own.
+  app.post('/api/admin/users/:id/admin', async (req, res) => {
+    const row = await db.get('SELECT id, role, blocked_at FROM users WHERE id = $1', [idParam(req.params.id)]);
+    if (!row) throw new HttpError(404, 'not_found');
+    if (row.id === req.user.id) throw new HttpError(403, 'cannot_change_self');
+    const admin = req.body?.admin === true;
+    if (admin && row.blocked_at) throw new HttpError(409, 'user_blocked');
+    await db.transaction(async (tx) => {
+      await tx.run('UPDATE users SET role = $1 WHERE id = $2', [admin ? 'admin' : 'user', row.id]);
+      await log(tx, req.user.id, admin ? 'promote' : 'demote', 'user', row.id);
+    });
+    res.json({ role: admin ? 'admin' : 'user' });
+  });
+
   // Support messages from the support page
   app.get('/api/admin/support', async (req, res) => {
     const status = ['open', 'answered', 'closed'].includes(req.query.status) ? req.query.status : null;
