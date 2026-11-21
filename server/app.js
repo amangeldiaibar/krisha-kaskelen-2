@@ -23,6 +23,8 @@ const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const MAP_LIMITS = { minZoom: 8, maxZoom: 18, maxDegreesFromSdu: 1 };
 const STREAM_PING_MS = 25_000;
 const MAX_COMPARE = 4;
+/** Ads on one page of search results. */
+const SEARCH_PAGE_SIZE = 20;
 const REPORT_REASONS = new Set(['fraud', 'wrong_info', 'unavailable', 'duplicate', 'offensive', 'other']);
 const SEARCH_TEXT = "lower(listings.title || ' ' || listings.description)";
 const likeAny = (words) => words.map((word) => `%${word}%`);
@@ -312,8 +314,17 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
     if (hasMaxKm) where.push('lat IS NOT NULL');
     const rows = await db.all(`SELECT * FROM listings WHERE ${where.join(' AND ')} ORDER BY id DESC`, params);
     const sort = SORTS.includes(req.query.sort) ? req.query.sort : 'distance';
-    const items = (await presentAll(rows, req.user?.id)).filter((item) => !hasMaxKm || item.distanceKm <= maxKm);
-    res.json({ sdu: { lat: SDU.lat, lon: SDU.lon }, items: items.sort(SORTERS[sort]) });
+    const items = (await presentAll(rows, req.user?.id)).filter((item) => !hasMaxKm || item.distanceKm <= maxKm).sort(SORTERS[sort]);
+    // Distance is only known after present(), so the page is cut here and not in SQL.
+    const pages = Math.max(1, Math.ceil(items.length / SEARCH_PAGE_SIZE));
+    const page = Math.min(toInt(req.query.page, 1, 100_000) || 1, pages);
+    res.json({
+      sdu: { lat: SDU.lat, lon: SDU.lon },
+      items: items.slice((page - 1) * SEARCH_PAGE_SIZE, page * SEARCH_PAGE_SIZE),
+      total: items.length,
+      page,
+      pages,
+    });
   });
 
   // Turns a phrase such as "однушка до 120к рядом с SDU" into the filters above.

@@ -5,6 +5,7 @@ import { AuthProvider, CompareProvider, ToastProvider } from './context.jsx';
 import Home from './pages/Home.jsx';
 import Compare from './pages/Compare.jsx';
 import Admin from './pages/Admin.jsx';
+import { pageNumbers } from './components/Shared.jsx';
 
 const item = (over) => ({
   id: 1, title: 'Квартира', deal: 'rent', price: 120000, rooms: 1, area: 40, floor: 2, floors: 5, year: 2015, district: 'near_sdu', address: 'Абылай хана 12',
@@ -79,6 +80,29 @@ describe('search by phrase', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Найти' }));
     expect(await screen.findByRole('alert')).toBeTruthy();
     expect(screen.getByTestId('where').textContent).toBe('/ru');
+  });
+});
+
+describe('search pages', () => {
+  it('numbers pages around the current one with gaps', () => {
+    expect(pageNumbers(1, 1)).toEqual([1]);
+    expect(pageNumbers(1, 3)).toEqual([1, 2, 3]);
+    expect(pageNumbers(5, 11)).toEqual([1, 'gap', 4, 5, 6, 'gap', 11]);
+    expect(pageNumbers(11, 11)).toEqual([1, 'gap', 10, 11]);
+  });
+
+  it('shows the total, opens another page and keeps the filters', async () => {
+    const calls = mockApi({
+      '/auth/me': { user: null },
+      '/listings': (path) => ({ sdu: { lat: 43.2, lon: 76.6 }, items: [item({ id: path.includes('page=2') ? 22 : 1 })], total: 45, page: path.includes('page=2') ? 2 : 1, pages: 3 }),
+    });
+    show('/ru?deal=rent', <Home />, '/:lang');
+    expect(await screen.findByText('Найдено квартир: 45')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '1' }).getAttribute('aria-current')).toBe('page');
+    fireEvent.click(screen.getByRole('button', { name: '2' }));
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/ru?deal=rent&page=2'));
+    await waitFor(() => expect(calls.some((call) => call.path === '/listings?deal=rent&page=2')).toBe(true));
+    await waitFor(() => expect(screen.getByRole('button', { name: '2' }).getAttribute('aria-current')).toBe('page'));
   });
 });
 

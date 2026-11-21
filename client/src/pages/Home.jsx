@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useFetch, useI18n } from '../context.jsx';
-import { CountUp, ListingCard, ListingsMap, NumberInput, SkeletonCards, Status, formatPrice } from '../components/Shared.jsx';
+import { CountUp, ListingCard, ListingsMap, NumberInput, Pager, SkeletonCards, Status, formatPrice } from '../components/Shared.jsx';
 
 const FILTERS = ['deal', 'rooms', 'priceFrom', 'priceTo', 'yearFrom', 'yearTo', 'district', 'maxKm', 'features', 'sort', 'q'];
 const FEATURES = ['furniture', 'pets', 'internet', 'washer', 'parking', 'balcony', 'conditioner'];
@@ -131,6 +131,13 @@ export default function Home() {
     const next = list.includes(name) ? list.filter((item) => item !== name) : [...list, name];
     setDraft({ query, values: { ...values, features: next.join(',') } });
   };
+  const goToPage = (page) => {
+    const next = new URLSearchParams(params);
+    if (page > 1) next.set('page', String(page));
+    else next.delete('page');
+    setParams(next);
+    document.querySelector('.list')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  };
   const apply = (next) => setParams(Object.fromEntries(Object.entries(next).filter(([, value]) => value !== '' && value !== undefined)));
   const submit = (event) => {
     event.preventDefault();
@@ -225,9 +232,10 @@ export default function Home() {
               <section className="panel" style={{ marginTop: 0 }}>
                 <ListingsMap items={data.items} sdu={data.sdu} activeId={hoveredId} />
               </section>
-              <h2>{t('found', { n: data.items.length })}</h2>
+              <h2>{t('found', { n: data.total ?? data.items.length })}</h2>
               {data.items.length === 0 && <p className="state">{t('empty')}</p>}
               {data.items.map((item, index) => <ListingCard key={item.id} item={item} index={index} onHover={setHoveredId} onRemoved={reload} />)}
+              <Pager page={data.page ?? 1} pages={data.pages ?? 1} onChange={goToPage} />
             </>
           )}
         </section>

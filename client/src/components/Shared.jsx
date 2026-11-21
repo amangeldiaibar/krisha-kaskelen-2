@@ -438,6 +438,31 @@ export function DealCardButton({ item }) {
   return <Link className="btn small" to={path(`/listing/${item.id}?deal=1`)}>{t(item.deal === 'rent' ? 'dealRentBtn' : 'dealBuyBtn')}</Link>;
 }
 
+/** Page numbers around the current one, with gaps: 1 … 4 5 6 … 11. */
+export function pageNumbers(page, pages) {
+  const shown = new Set([1, pages, page - 1, page, page + 1].filter((n) => n >= 1 && n <= pages));
+  const sorted = [...shown].sort((a, b) => a - b);
+  return sorted.flatMap((n, index) => (index > 0 && n - sorted[index - 1] > 1 ? ['gap', n] : [n]));
+}
+
+export function Pager({ page, pages, onChange }) {
+  const { t } = useI18n();
+  if (pages <= 1) return null;
+  return (
+    <nav className="pager" aria-label={t('pages')}>
+      <button className="btn ghost small" type="button" disabled={page <= 1} onClick={() => onChange(page - 1)}>← {t('prev')}</button>
+      {pageNumbers(page, pages).map((n, index) =>
+        n === 'gap' ? (
+          <span key={`gap${index}`} className="meta">…</span>
+        ) : (
+          <button key={n} type="button" className={`page-num${n === page ? ' on' : ''}`} aria-current={n === page ? 'page' : undefined} onClick={() => onChange(n)}>{n}</button>
+        ),
+      )}
+      <button className="btn ghost small" type="button" disabled={page >= pages} onClick={() => onChange(page + 1)}>{t('next')} →</button>
+    </nav>
+  );
+}
+
 export function ListingCard({ item, index = 0, onFavoriteChange, onHover, onRemoved }) {
   const { t, path } = useI18n();
   const { user } = useAuth();

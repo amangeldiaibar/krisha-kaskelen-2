@@ -1116,3 +1116,20 @@ describe('comparison', () => {
     assert.deepEqual((await client()('/api/listings/compare')).data.items, []);
   });
 });
+
+describe('search pages', () => {
+  it('shows 20 ads a page, counts them all and keeps a page number in range', async () => {
+    for (let i = 0; i < 45; i += 1) await addListing({ price: 100000 + i });
+    const first = (await client()('/api/listings?sort=price_asc')).data;
+    assert.equal(first.items.length, 20);
+    assert.equal(first.total, 45);
+    assert.deepEqual([first.page, first.pages], [1, 3]);
+    assert.equal(first.items[0].price, 100000);
+
+    const last = (await client()('/api/listings?sort=price_asc&page=3')).data;
+    assert.equal(last.items.length, 5);
+    assert.equal(last.items[0].price, 100040);
+    assert.equal((await client()('/api/listings?page=99')).data.page, 3);
+    assert.equal((await client()('/api/listings?page=abc')).data.page, 1);
+  });
+});
