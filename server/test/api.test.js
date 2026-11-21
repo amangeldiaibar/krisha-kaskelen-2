@@ -1449,3 +1449,17 @@ describe('forgot password', () => {
     assert.equal((await client()('/api/auth/reset', { method: 'POST', json: { token: 'abc', password: 'new-password-1' } })).data.error, 'reset_link_invalid');
   });
 });
+
+describe('profile phone', () => {
+  it('says the number belongs to another account when it does', async () => {
+    const first = await newUser();
+    const second = await newUser();
+    const taken = (await first('/api/auth/me')).data.user.phone;
+    const body = new FormData();
+    body.append('name', 'Имя Фамилия');
+    body.append('phone', taken);
+    const res = await second('/api/auth/profile', { method: 'PUT', body });
+    assert.equal(res.status, 409);
+    assert.deepEqual([res.data.error, res.data.field], ['phone_taken', 'phone']);
+  });
+});

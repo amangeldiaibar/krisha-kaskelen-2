@@ -199,7 +199,11 @@ function ProfileForm() {
   const [removePhoto, setRemovePhoto] = useState(false);
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState(null);
-  const change = (event) => setValues({ ...values, [event.target.name]: event.target.value });
+  // An old error goes away as soon as something is changed, so it never describes values no longer there.
+  const change = (event) => {
+    setValues({ ...values, [event.target.name]: event.target.value });
+    setError(null);
+  };
 
   useEffect(() => {
     if (!photo) return undefined;
@@ -240,7 +244,7 @@ function ProfileForm() {
           <div className="actions">
             <label className="btn ghost small">
               {t('choosePhoto')}
-              <input className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" aria-label={t('profilePhoto')} onChange={(event) => { setPhoto(event.target.files[0] ?? null); setRemovePhoto(false); event.target.value = ''; }} />
+              <input className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" aria-label={t('profilePhoto')} onChange={(event) => { setPhoto(event.target.files[0] ?? null); setRemovePhoto(false); setError(null); event.target.value = ''; }} />
             </label>
             {shown && <button className="btn danger small" type="button" onClick={() => { setPhoto(null); setRemovePhoto(true); }}>{t('removePhoto')}</button>}
           </div>

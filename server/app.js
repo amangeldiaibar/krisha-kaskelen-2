@@ -319,7 +319,8 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
       await db.run('UPDATE users SET name = $1, phone = $2, avatar = $3 WHERE id = $4', [name, phone, avatar, req.user.id]);
     } catch (error) {
       if (type) fs.rmSync(path.join(uploadsDir, avatar), { force: true });
-      if (isUniqueViolation(error)) throw new HttpError(409, 'account_exists');
+      // Only the phone changes here, so a clash means another account already uses this number.
+      if (isUniqueViolation(error)) throw Object.assign(new HttpError(409, 'phone_taken'), { field: 'phone' });
       throw error;
     }
     if (old && old !== avatar) fs.rmSync(path.join(uploadsDir, old), { force: true });
