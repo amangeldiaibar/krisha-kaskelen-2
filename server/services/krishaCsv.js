@@ -51,8 +51,32 @@ const number = (value) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 };
 
-/** Turns one row from krisha_parser.py into a listing, or null when it is unusable. */
-export function rowToListing(row) {
+/** Where the seller line and krisha.kz buttons start in a search card's text. */
+const CARD_TAIL = /\s(?:Хозяин недвижимости|Специалист|Агент|Риелтор|Застройщик|Каскелен\s+\d{1,2}\s|В Избранное)/;
+
+/** Rewrites a row exported by KrishaParser (house-pricer) into the columns of the old CSV. */
+export function fromHousePricer(row) {
+  const card = String(row.description ?? '').replace(/\s+/g, ' ').trim();
+  const priceAt = card.search(/\s[\d\s]+₸/);
+  const title = priceAt > 0 ? card.slice(0, priceAt) : '';
+  const address = String(row.address ?? '').trim();
+  let rest = card.replace(/^.*?₸\s*(?:за\s+(?:месяц|сутки))?\s*/, '');
+  if (address && rest.startsWith(address)) rest = rest.slice(address.length);
+  const tail = rest.search(CARD_TAIL);
+  return {
+    id: row.id,
+    url: row.url,
+    title,
+    price: row.price_kzt,
+    price_raw: row.rent_period === 'month' ? 'за месяц' : row.rent_period === 'day' ? 'за сутки' : '',
+    address,
+    description: (tail >= 0 ? rest.slice(0, tail) : rest).trim() || title,
+  };
+}
+
+/** Turns one row of the krisha.kz CSV into a listing, or null when it is unusable. */
+export function rowToListing(input) {
+  const row = 'price_kzt' in input ? fromHousePricer(input) : input;
   const id = String(row.id ?? '').trim();
   const url = String(row.url ?? '').trim();
   if (!/^\d+$/.test(id) || !/^https:\/\/krisha\.kz\/a\/show\/\d+/.test(url)) return null;
@@ -81,7 +105,7 @@ export function rowToListing(row) {
   };
 }
 
-/** Photo files that krisha_parser.py saved for one ad, in their numbered order. */
+/** Photo files the parser saved for one ad, in their numbered order. */
 export function photoFiles(photosDir, krishaId) {
   const folder = path.join(photosDir, krishaId);
   if (!fs.existsSync(folder)) return [];

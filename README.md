@@ -90,7 +90,17 @@ A phone number works too. Add `--remove` to take the rights away. The admin pane
 
 ## Ads from krisha.kz
 
-The site takes its ads from krisha.kz through a CSV file and a `photos` folder made by `krisha_parser.py`, a separate script that is not part of the app. Put both in the project folder, then run:
+The krisha.kz parser lives in [KrishaParser/](KrishaParser/), taken from [house-pricer](https://github.com/Damenzzzz/house-pricer/tree/main/KrishaParser). Its own README explains setup. Collect ads and load the newest export into the site:
+
+```bash
+cd KrishaParser
+python -m krisha crawl --city kaskelen --max-pages 5
+python -m krisha photos
+python -m krisha export
+cd .. && npm run import:krisha-parser
+```
+
+An older CSV file with a `photos` folder in the project folder loads the same way:
 
 ```bash
 npm run import:krisha

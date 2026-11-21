@@ -774,6 +774,19 @@ describe('krisha.kz CSV import', () => {
     assert.equal(bad, null);
   });
 
+  it('reads the export of KrishaParser and cuts the krisha.kz buttons out of the card text', () => {
+    const exported = '﻿id,url,rent_period,price_kzt,rooms,area_total,floor,floors_total,address,description\r\n'
+      + '47231781,https://krisha.kz/a/show/47231781,month,250000,2,80.0,5,7,Алтын-ауыл,"2-комнатная квартира · 80 м² · 5/7 этаж 250 000 ₸ за месяц Алтын-ауыл монолитный дом, евроремонт Хозяин недвижимости Каскелен 21 нояб. В Избранное Отправить в ТОП"\r\n';
+    const [listing] = parseCsv(exported).map(rowToListing);
+    assert.equal(listing.title, '2-комнатная квартира · 80 м² · 5/7 этаж');
+    assert.equal(listing.deal, 'rent');
+    assert.equal(listing.price, 250000);
+    assert.equal(listing.rooms, 2);
+    assert.equal(listing.floors, 7);
+    assert.equal(listing.address, 'Алтын-ауыл');
+    assert.equal(listing.description, 'монолитный дом, евроремонт');
+  });
+
   it('replaces test and earlier krisha.kz ads, keeps Telegram ads and ads people posted, and adds photos from the folder', async () => {
     const owner = await newUser();
     await owner('/api/listings', { method: 'POST', body: form() });
