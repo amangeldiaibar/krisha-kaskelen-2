@@ -395,6 +395,39 @@ export function DeleteListingButton({ item, onDeleted }) {
   );
 }
 
+/** Lets an admin remove any ad for good, from the admin panel, a search card or the ad page. */
+export function AdminDeleteButton({ id, onDone, className = 'btn ghost small' }) {
+  const { t, tError } = useI18n();
+  const toast = useToast();
+  const dialog = useRef(null);
+  const [busy, setBusy] = useState(false);
+  async function confirm() {
+    setBusy(true);
+    try {
+      await api(`/admin/listings/${id}`, { method: 'DELETE' });
+      dialog.current?.close();
+      toast(t('toastDeleted'));
+      onDone?.();
+    } catch (failure) {
+      toast(tError(failure), 'bad');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <button className={className} type="button" onClick={() => dialog.current?.showModal()}>{t('adminDelete')}</button>
+      <dialog ref={dialog} className="dialog">
+        <p>{t('adminDeleteConfirm', { n: id })}</p>
+        <div className="actions" style={{ marginTop: 16 }}>
+          <button className="btn danger solid" type="button" disabled={busy} onClick={confirm}>{t('adminDelete')}</button>
+          <button className="btn ghost" type="button" onClick={() => dialog.current?.close()}>{t('deleteCancel')}</button>
+        </div>
+      </dialog>
+    </>
+  );
+}
+
 export function DealCardButton({ item }) {
   const { t, path } = useI18n();
   if (item.dealStatus === 'closed') return <span className="status rejected">{t(`closed_${item.deal}`)}</span>;
@@ -405,8 +438,9 @@ export function DealCardButton({ item }) {
   return <Link className="btn small" to={path(`/listing/${item.id}?deal=1`)}>{t(item.deal === 'rent' ? 'dealRentBtn' : 'dealBuyBtn')}</Link>;
 }
 
-export function ListingCard({ item, index = 0, onFavoriteChange, onHover }) {
+export function ListingCard({ item, index = 0, onFavoriteChange, onHover, onRemoved }) {
   const { t, path } = useI18n();
+  const { user } = useAuth();
   const place = [item.district ? t(item.district) : null, t('kaskelen')].filter(Boolean).join(', ');
   const heading = [listingLabel(t, item), item.area ? `${item.area} м²` : null].filter(Boolean).join(', ');
   return (
@@ -437,6 +471,7 @@ export function ListingCard({ item, index = 0, onFavoriteChange, onHover }) {
         <div className="card-foot">
           <SourceBadge source={item.source} />
           <DealCardButton item={item} />
+          {user?.role === 'admin' && <AdminDeleteButton id={item.id} onDone={onRemoved} className="btn danger small" />}
         </div>
       </div>
     </article>

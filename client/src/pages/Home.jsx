@@ -227,7 +227,7 @@ export default function Home() {
               </section>
               <h2>{t('found', { n: data.items.length })}</h2>
               {data.items.length === 0 && <p className="state">{t('empty')}</p>}
-              {data.items.map((item, index) => <ListingCard key={item.id} item={item} index={index} onHover={setHoveredId} />)}
+              {data.items.map((item, index) => <ListingCard key={item.id} item={item} index={index} onHover={setHoveredId} onRemoved={reload} />)}
             </>
           )}
         </section>

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth, useFetch, useI18n, usePolling, useToast } from '../context.jsx';
-import { CompareButton, DeleteListingButton, Distance, FavoriteButton, HouseArt, ListingsMap, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
+import { AdminDeleteButton, CompareButton, DeleteListingButton, Distance, FavoriteButton, HouseArt, ListingsMap, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
 
 const PENDING_POLL_MS = 3000;
 
@@ -480,6 +480,7 @@ export default function Listing() {
               <CompareButton item={item} inline />
               {item.isOwner && <Link className="btn ghost" to={path(`/listing/${item.id}/edit`)}>{t('edit')}</Link>}
               {item.isOwner && <DeleteListingButton item={item} onDeleted={() => navigate(path('/mine'))} />}
+              {!item.isOwner && user?.role === 'admin' && <AdminDeleteButton id={item.id} onDone={() => navigate(path('/'))} className="btn danger" />}
             </div>
           </section>
           <ContactPanel item={item} />

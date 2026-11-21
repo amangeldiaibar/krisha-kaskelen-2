@@ -12,7 +12,7 @@ function FavoritesBody() {
       <Status loading={loading && !data} error={error} onRetry={reload} />
       {data?.items.length === 0 && <p className="state">{t('noFavorites')}</p>}
       <div className="list" style={{ marginTop: 16 }}>
-        {data?.items.map((item, index) => <ListingCard key={item.id} item={item} index={index} onFavoriteChange={reload} />)}
+        {data?.items.map((item, index) => <ListingCard key={item.id} item={item} index={index} onFavoriteChange={reload} onRemoved={reload} />)}
       </div>
     </>
   );

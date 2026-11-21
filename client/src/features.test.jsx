@@ -17,7 +17,7 @@ function mockApi(routes) {
   const calls = [];
   vi.stubGlobal('fetch', vi.fn(async (url, options = {}) => {
     const path = url.replace(/^\/api/, '');
-    calls.push({ path, body: options.body ? JSON.parse(options.body) : null });
+    calls.push({ path, method: options.method ?? 'GET', body: options.body ? JSON.parse(options.body) : null });
     const key = Object.keys(routes).find((prefix) => path.startsWith(prefix));
     const body = key ? (typeof routes[key] === 'function' ? routes[key](path) : routes[key]) : { error: 'not_found' };
     return { ok: Boolean(key), status: key ? 200 : 404, json: async () => body };
@@ -39,7 +39,12 @@ const show = (url, element, path) =>
     </MemoryRouter>,
   );
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  localStorage.clear();
+  // jsdom has <dialog> but cannot open it.
+  HTMLDialogElement.prototype.showModal ??= function showModal() { this.open = true; };
+  HTMLDialogElement.prototype.close ??= function close() { this.open = false; };
+});
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -111,6 +116,31 @@ describe('admin panel', () => {
     mockApi({ '/auth/me': { user: { id: 1, name: 'A', role: 'user' } } });
     show('/ru/admin', <Admin />, '/:lang/admin');
     expect(await screen.findByText('У вас нет доступа к этой странице.')).toBeTruthy();
+  });
+
+  it('lets an admin delete a broken ad straight from the search results', async () => {
+    let items = [item({ id: 5, title: 'Сломанное объявление' })];
+    const calls = mockApi({
+      '/auth/me': { user: { id: 1, name: 'Admin', role: 'admin' } },
+      '/admin/listings/5': () => {
+        items = [];
+        return {};
+      },
+      '/listings': () => ({ sdu: { lat: 43.2, lon: 76.6 }, items }),
+    });
+    show('/ru', <Home />, '/:lang');
+    fireEvent.click(await screen.findByRole('button', { name: 'Удалить' }));
+    expect(screen.getByText('Удалить объявление №5 навсегда? Вместе с ним удалятся фото, отзывы и чаты.')).toBeTruthy();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Удалить' }).at(-1));
+    await waitFor(() => expect(calls.some((call) => call.path === '/admin/listings/5' && call.method === 'DELETE')).toBe(true));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Удалить' })).toBeNull());
+  });
+
+  it('does not show the delete button to ordinary visitors', async () => {
+    mockApi({ '/auth/me': { user: null }, '/listings': { sdu: { lat: 43.2, lon: 76.6 }, items: [item({ id: 5 })] } });
+    show('/ru', <Home />, '/:lang');
+    await screen.findAllByText(/120 000/);
+    expect(screen.queryByRole('button', { name: 'Удалить' })).toBeNull();
   });
 
   it('shows counts and merges a duplicate pair', async () => {

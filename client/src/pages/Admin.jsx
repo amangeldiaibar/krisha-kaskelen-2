@@ -1,8 +1,8 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth, useFetch, useI18n, useToast } from '../context.jsx';
-import { HouseArt, RequireLogin, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
+import { AdminDeleteButton, HouseArt, RequireLogin, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
 
 const TABS = ['overview', 'listings', 'duplicates', 'reports', 'reviews', 'users', 'log'];
 const LOCALES = { ru: 'ru-RU', kk: 'kk-KZ', en: 'en-GB' };
@@ -68,37 +68,6 @@ function ModerationActions({ url, status, onDone, suggestedReason = '' }) {
   );
 }
 
-function DeleteAction({ id, onDone }) {
-  const { t, tError } = useI18n();
-  const toast = useToast();
-  const dialog = useRef(null);
-  const [busy, setBusy] = useState(false);
-  async function confirm() {
-    setBusy(true);
-    try {
-      await api(`/admin/listings/${id}`, { method: 'DELETE' });
-      dialog.current?.close();
-      toast(t('toastDeleted'));
-      onDone();
-    } catch (failure) {
-      toast(tError(failure), 'bad');
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <>
-      <button className="btn ghost small" type="button" onClick={() => dialog.current?.showModal()}>{t('adminDelete')}</button>
-      <dialog ref={dialog} className="dialog">
-        <p>{t('adminDeleteConfirm', { n: id })}</p>
-        <div className="actions" style={{ marginTop: 16 }}>
-          <button className="btn danger solid" type="button" disabled={busy} onClick={confirm}>{t('adminDelete')}</button>
-          <button className="btn ghost" type="button" onClick={() => dialog.current?.close()}>{t('deleteCancel')}</button>
-        </div>
-      </dialog>
-    </>
-  );
-}
 
 function Cover({ item }) {
   const { t } = useI18n();
@@ -206,7 +175,7 @@ function ListingsTab({ params, setFilter }) {
             <div className="actions">
               <ModerationActions url={`/admin/listings/${item.id}/moderate`} status={item.status} onDone={reload} />
               {item.duplicateOf && <UnmergeButton id={item.id} onDone={reload} />}
-              <DeleteAction id={item.id} onDone={reload} />
+              <AdminDeleteButton id={item.id} onDone={reload} />
             </div>
           </div>
         </article>
