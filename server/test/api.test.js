@@ -11,7 +11,8 @@ import { importKrisha, parseCsv, rowToListing } from '../services/krishaCsv.js';
 import { connectDb } from '../db.js';
 import { startLocalPostgres } from '../local-postgres.js';
 import { copySqliteToPostgres } from '../services/sqliteCopy.js';
-import { DgisError } from '../services/dgis.js';
+import { DgisError, createDgis } from '../services/dgis.js';
+import { createOsmGeocoder } from '../services/osm.js';
 import { createGeminiModerator, createUncheckedModerator, ModerationUnavailable, NO_AI_KEY_REASON } from '../services/moderation.js';
 import { createWorker } from '../services/worker.js';
 import { addListingPhotos, importListings, isBlockedUrl, parseResult, saveImports } from '../services/importer.js';
@@ -1131,5 +1132,50 @@ describe('search pages', () => {
     assert.equal(last.items[0].price, 100040);
     assert.equal((await client()('/api/listings?page=99')).data.page, 3);
     assert.equal((await client()('/api/listings?page=abc')).data.page, 1);
+  });
+});
+
+describe('OpenStreetMap fallback geocoding', () => {
+  const place = (lat, lon, category, type = 'yes') => ({ lat: String(lat), lon: String(lon), category, type });
+  /** Answers like Nominatim and records each request. */
+  function fakeNominatim(answer) {
+    const requests = [];
+    const fetchImpl = async (url, options) => {
+      requests.push({ q: url.searchParams.get('q'), agent: options.headers['User-Agent'] });
+      return { ok: true, json: async () => answer(url.searchParams.get('q')) };
+    };
+    return { requests, fetchImpl };
+  }
+
+  it('prefers a building, takes a street only when approximate, ignores far places, caches and keeps a gap between requests', async () => {
+    const { requests, fetchImpl } = fakeNominatim((q) =>
+      q.startsWith('Толе би 37')
+        ? [place(43.2016, 76.6204, 'building')]
+        : [place(51.1, 71.4, 'building'), place(43.2034, 76.6181, 'highway', 'secondary')],
+    );
+    const waits = [];
+    let clock = 1_000_000;
+    const osm = createOsmGeocoder({ db, fetchImpl, now: () => clock, wait: async (ms) => { waits.push(ms); clock += ms; } });
+
+    assert.deepEqual(await osm.geocode('Толе би 37 — Цон Кемел уй'), { lat: 43.2016, lon: 76.6204 });
+    assert.equal(requests[0].q, 'Толе би 37, Каскелен');
+    assert.match(requests[0].agent, /krisha-kaskelen/);
+    // The building in Astana is too far, so only the street is left.
+    assert.equal(await osm.geocode('Абылай хана 13'), null);
+    assert.deepEqual(await osm.geocode('Абылай хана 13', { approximate: true }), { lat: 43.2034, lon: 76.6181 });
+    assert.equal(requests.length, 2);
+    assert.equal(waits.length, 1);
+    assert.ok(waits[0] >= 1000);
+  });
+
+  it('is asked when 2GIS refuses the key, and 2GIS errors still surface when both fail', async () => {
+    const dgisDown = async (url) => (String(url).includes('2gis')
+      ? { ok: false, status: 403, json: async () => ({ meta: { code: 403 } }) }
+      : { ok: true, json: async () => [place(43.2057, 76.6373, 'building', 'apartments')] });
+    const geo = createDgis({ key: 'blocked', db, fetchImpl: dgisDown, fallback: createOsmGeocoder({ db, fetchImpl: dgisDown, wait: async () => {} }) });
+    assert.deepEqual(await geo.geocode('Наурызбай батыра 25'), { lat: 43.2057, lon: 76.6373 });
+
+    const allDown = createDgis({ key: 'blocked', db, fetchImpl: dgisDown, fallback: { geocode: async () => { throw new Error('offline'); } } });
+    await assert.rejects(allDown.geocode('Наурызбай батыра 25'), DgisError);
   });
 });

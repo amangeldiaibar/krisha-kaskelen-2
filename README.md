@@ -72,7 +72,7 @@ Copy `.env.example` to `.env`. The `.env` file must stay out of Git.
 | Variable | Used for | Without it |
 |---|---|---|
 | `DATABASE_URL` | The PostgreSQL server to use | Uses the local one from `npm run db`. Production does not start |
-| `DGIS_API_KEY` | Map, address lookup and 2GIS data | The map and address lookup do not work |
+| `DGIS_API_KEY` | Map, address lookup and 2GIS data | The map does not work. Addresses are looked up in OpenStreetMap |
 | `GEMINI_API_KEY` | AI moderation through Google Gemini, which has a free tier | Without it, local runs publish content unchecked and label it under "My ads". Production keeps it pending |
 | `SERPAPI_KEY` | Importing public Google results with `npm run import` | The import command does not run |
 | `MODERATION_MODEL` | Choosing the moderation model | Uses `gemini-flash-lite-latest` |
@@ -133,6 +133,7 @@ A request does not take payment or create a contract. It passes contact details 
 
 - **2GIS reviews:** the demo key gets no access to review texts, so only the building rating and review count appear.
 - **2GIS demo key:** it lasts one month and allows 1000 requests per service.
+- **Address lookup without 2GIS:** when 2GIS refuses the key or does not know an address, the server asks OpenStreetMap (Nominatim), one request a second, and caches the answer for 30 days. Ads that name only a street get the street's point, so their distance to SDU is approximate. Address data © OpenStreetMap contributors.
 - **Gemini free tier:** Google may use free-tier prompts to improve its products, and the daily limit can change. When it runs out, new items wait and are retried automatically.
 - **Google import:** it adds an ad only when Google's text shows a price and a usable Kaskelen address, so a run may add nothing.
 

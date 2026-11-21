@@ -1,4 +1,6 @@
 const BATCH_SIZE = 5;
+/** OpenStreetMap allows a request a second, so 20 lookups fit in one 30-second tick. */
+const GEOCODE_BATCH_SIZE = 20;
 /** How long to leave 2GIS or the AI alone after a failure, so a blocked key or an overloaded model is not hit every tick. */
 const PAUSE_MS = 10 * 60_000;
 
@@ -12,13 +14,14 @@ export function createWorker({ db, dgis, moderator, log = console, now = Date.no
     if (now() < geocodePausedUntil) return;
     // An address 2GIS did not find is tried again a day later, not on every tick.
     const rows = await db.all(
-      `SELECT id, address FROM listings WHERE lat IS NULL AND address IS NOT NULL
+      `SELECT id, address, source_type FROM listings WHERE lat IS NULL AND address IS NOT NULL
        AND (geocode_tried_at IS NULL OR geocode_tried_at < now() - interval '1 day') ORDER BY id LIMIT $1`,
-      [BATCH_SIZE],
+      [GEOCODE_BATCH_SIZE],
     );
     for (const row of rows) {
       try {
-        const point = await dgis.geocode(row.address);
+        // Imported ads often name only a street, which is still good enough for the distance to SDU.
+        const point = await dgis.geocode(row.address, { approximate: row.source_type === 'import' });
         await db.run('UPDATE listings SET lat = $1, lon = $2, geocode_tried_at = now() WHERE id = $3', [point?.lat ?? null, point?.lon ?? null, row.id]);
       } catch (error) {
         geocodePausedUntil = now() + PAUSE_MS;

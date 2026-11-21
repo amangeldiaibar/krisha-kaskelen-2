@@ -1,5 +1,6 @@
 import { SDU } from '../config.js';
 import { distanceKm } from '../geo.js';
+import { createOsmGeocoder } from './osm.js';
 
 const CATALOG = 'https://catalog.api.2gis.com/3.0/items';
 const REVIEWS = 'https://public-api.reviews.2gis.com/2.0/branches';
@@ -9,7 +10,7 @@ const PRECISE_TYPES = new Set(['building', 'branch', 'attraction']);
 
 export class DgisError extends Error {}
 
-export function createDgis({ key, db, fetchImpl = fetch }) {
+export function createDgis({ key, db, fetchImpl = fetch, fallback = createOsmGeocoder({ db, fetchImpl }) }) {
   async function catalog(params) {
     const url = new URL(`${CATALOG}${params.path || ''}`);
     url.searchParams.set('key', key);
@@ -38,17 +39,37 @@ export function createDgis({ key, db, fetchImpl = fetch }) {
     });
   }
 
-  /**
-   * Returns coordinates, or null when 2GIS does not know this exact building.
-   * `approximate` also accepts a street or quarter, but never the whole city.
-   */
-  async function geocode(address, { approximate = false } = {}) {
+  async function geocodeWith2gis(address, approximate) {
     const items = await catalog({
       path: '/geocode',
       query: { q: addressQuery(address), fields: 'items.point,items.address_name' },
     });
     const item = preciseItem(items) ?? (approximate ? roughItem(items) : null);
     return item ? { lat: item.point.lat, lon: item.point.lon } : null;
+  }
+
+  /**
+   * Returns coordinates, or null when no map knows this exact building.
+   * `approximate` also accepts a street or quarter, but never the whole city.
+   * When 2GIS fails or does not know the address, OpenStreetMap is asked instead.
+   */
+  async function geocode(address, { approximate = false } = {}) {
+    let failure = null;
+    if (key) {
+      try {
+        const point = await geocodeWith2gis(address, approximate);
+        if (point || !fallback) return point;
+      } catch (error) {
+        if (!fallback) throw error;
+        failure = error;
+      }
+    }
+    if (!fallback) return null;
+    try {
+      return await fallback.geocode(address, { approximate });
+    } catch (error) {
+      throw failure ?? new DgisError(error.message);
+    }
   }
 
   /**
