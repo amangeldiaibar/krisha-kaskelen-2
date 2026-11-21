@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { openDatabase } from './open-db.js';
 import { sniffImage } from './images.js';
 import { createDgis } from './services/dgis.js';
+import { mentionsServiceArea } from './services/area.js';
 import { addListingPhotos, saveImports } from './services/importer.js';
 import { adFingerprint, cleanPost, createGeminiExtractor, groupAlbums, textFingerprint, MAX_NEW_ADS_PER_RUN, MAX_PHOTOS_PER_AD, MAX_POSTS_PER_CHANNEL, postsToListings, SEARCH_TERMS } from './services/telegram.js';
 import { createClient, readSession } from './telegram-client.js';
@@ -71,7 +72,14 @@ posts.sort((a, b) => b.date - a.date);
 // Ads already on the site skip the AI.
 const onSiteUrls = new Set((await db.all(`SELECT source_url FROM listings WHERE source_type = 'import'`)).map((row) => row.source_url));
 // An ad without photos is not shown, so such posts never reach the AI.
-const fresh = posts.filter((post) => post.photos.length > 0 && !onSiteUrls.has(`https://t.me/${post.username}/${post.messageId}`));
+// Channels about all of Almaty spend the AI only on posts that name Kaskelen or a village next to it.
+const areaChannels = new Set(config.telegram.areaChannels.map((name) => name.toLowerCase()));
+const fresh = posts.filter(
+  (post) =>
+    post.photos.length > 0 &&
+    !onSiteUrls.has(`https://t.me/${post.username}/${post.messageId}`) &&
+    (!areaChannels.has(post.username.toLowerCase()) || mentionsServiceArea(post.text)),
+);
 
 // Every Telegram ad on the site gets the photos it is missing, even when its
 // post is older than the messages read above. An album sits next to its text.

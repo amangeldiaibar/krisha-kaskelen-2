@@ -13,6 +13,7 @@ import { startLocalPostgres } from '../local-postgres.js';
 import { copySqliteToPostgres } from '../services/sqliteCopy.js';
 import { DgisError, createDgis } from '../services/dgis.js';
 import { createOsmGeocoder } from '../services/osm.js';
+import { geocodeQuery, inServiceArea, mentionsServiceArea, placeOf } from '../services/area.js';
 import { createGeminiModerator, createUncheckedModerator, ModerationUnavailable, NO_AI_KEY_REASON } from '../services/moderation.js';
 import { createWorker } from '../services/worker.js';
 import { addListingPhotos, saveImports } from '../services/importer.js';
@@ -1122,7 +1123,7 @@ describe('OpenStreetMap fallback geocoding', () => {
 
   it('prefers a building, takes a street only when approximate, ignores far places, caches and keeps a gap between requests', async () => {
     const { requests, fetchImpl } = fakeNominatim((q) =>
-      q.startsWith('Толе би 37')
+      q.includes('Толе би 37')
         ? [place(43.2016, 76.6204, 'building')]
         : [place(51.1, 71.4, 'building'), place(43.2034, 76.6181, 'highway', 'secondary')],
     );
@@ -1131,7 +1132,7 @@ describe('OpenStreetMap fallback geocoding', () => {
     const osm = createOsmGeocoder({ db, fetchImpl, now: () => clock, wait: async (ms) => { waits.push(ms); clock += ms; } });
 
     assert.deepEqual(await osm.geocode('Толе би 37 — Цон Кемел уй'), { lat: 43.2016, lon: 76.6204 });
-    assert.equal(requests[0].q, 'Толе би 37, Каскелен');
+    assert.equal(requests[0].q, 'Каскелен, Толе би 37');
     assert.match(requests[0].agent, /krisha-kaskelen/);
     // The building in Astana is too far, so only the street is left.
     assert.equal(await osm.geocode('Абылай хана 13'), null);
@@ -1187,5 +1188,40 @@ describe('search figures', () => {
     assert.equal(stats.minRent, 90000);
     assert.equal(stats.minBuy, 21000000);
     assert.ok(stats.nearestKm > 0 && stats.nearestKm < 0.2);
+  });
+});
+
+describe('service area: Kaskelen and the villages towards Almaty', () => {
+  it('keeps Kaskelen and the villages on the map, and drops the rest of Almaty', () => {
+    assert.equal(inServiceArea({ lat: 43.2016, lon: 76.6204 }), true); // Kaskelen
+    assert.equal(inServiceArea({ lat: 43.2379, lon: 76.7628 }), true); // Иргели
+    assert.equal(inServiceArea({ lat: 43.2638, lon: 76.8175 }), true); // Almaty Arena
+    assert.equal(inServiceArea({ lat: 43.1908, lon: 76.6861 }), true); // Долан
+    assert.equal(inServiceArea({ lat: 43.2389, lon: 76.8897 }), false); // Almaty, Sairan
+    assert.equal(inServiceArea({ lat: 43.2381, lon: 76.9453 }), false); // Almaty centre
+    assert.equal(inServiceArea(null), false);
+  });
+
+  it('looks an address up in its village, or in Kaskelen when none is named', () => {
+    assert.equal(geocodeQuery('Толе би 37 — у моста'), 'Каскелен, Толе би 37');
+    assert.equal(geocodeQuery('Жибек жолы 5, Иргели'), 'Алматинская область, Иргели, Жибек жолы 5');
+    assert.equal(geocodeQuery('Булакты'), 'Алматинская область, Булакты');
+    // A street named after Abai is not the village of Abai.
+    assert.equal(placeOf('ул. Абая 10'), null);
+    assert.equal(placeOf('мкр Абай, 15'), 'Абай');
+  });
+
+  it('reads only posts from Almaty-wide channels that name a served place', () => {
+    assert.equal(mentionsServiceArea('Сдаю 1-комн в Иргели, 150 000 тг'), true);
+    assert.equal(mentionsServiceArea('Сдам квартиру рядом с SDU'), true);
+    assert.equal(mentionsServiceArea('Сдаю 2-комн, Самал-2, 350 000 тг'), false);
+  });
+
+  it('puts the village from the post into the address and title', () => {
+    const fields = { isRentalOffer: true, isShared: false, rooms: 1, monthlyPrice: 150000, area: 40, address: 'Жибек жолы 5', locality: 'иргели' };
+    const listing = toListing(fields, 'Сдаю в Иргели', { username: 'kvartira_v_almaty', messageId: 7 });
+    assert.equal(listing.address, 'Жибек жолы 5, Иргели');
+    assert.equal(listing.title, '1-комнатная квартира, Жибек жолы 5, Иргели');
+    assert.equal(toListing({ ...fields, locality: 'Каскелен' }, 't', { username: 'x', messageId: 1 }).address, 'Жибек жолы 5');
   });
 });

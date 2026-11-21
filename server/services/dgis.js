@@ -1,10 +1,10 @@
 import { SDU } from '../config.js';
-import { distanceKm, streetPart } from '../geo.js';
+import { distanceKm } from '../geo.js';
+import { geocodeQuery, inServiceArea } from './area.js';
 import { createOsmGeocoder } from './osm.js';
 
 const CATALOG = 'https://catalog.api.2gis.com/3.0/items';
 const REVIEWS = 'https://public-api.reviews.2gis.com/2.0/branches';
-const MAX_DISTANCE_FROM_SDU_KM = 12;
 const REVIEWS_TTL_MS = 24 * 60 * 60 * 1000;
 const PRECISE_TYPES = new Set(['building', 'branch', 'attraction']);
 /** A match this close to SDU is the campus itself, found because the ad names it as a landmark. Flats are not on campus. */
@@ -25,29 +25,27 @@ export function createDgis({ key, db, fetchImpl = fetch, fallback = createOsmGeo
     return body.result?.items ?? [];
   }
 
-  const addressQuery = (address) => `Каскелен, ${address}`;
-
   function preciseItem(items) {
     return items.find((item) => {
       if (!PRECISE_TYPES.has(item.type) || !item.point) return false;
-      return distanceKm(SDU, item.point) <= MAX_DISTANCE_FROM_SDU_KM;
+      return inServiceArea(item.point);
     });
   }
 
   function roughItem(items) {
     return items.find((item) => {
       if (!item.point || (item.type !== 'street' && item.type !== 'adm_div') || item.subtype === 'city') return false;
-      return distanceKm(SDU, item.point) <= MAX_DISTANCE_FROM_SDU_KM;
+      return inServiceArea(item.point);
     });
   }
 
   async function geocodeWith2gis(address, approximate) {
-    const street = streetPart(address);
-    if (!street) return null;
+    const q = geocodeQuery(address);
+    if (!q) return null;
     const items = (
       await catalog({
         path: '/geocode',
-        query: { q: addressQuery(street), fields: 'items.point,items.address_name' },
+        query: { q, fields: 'items.point,items.address_name' },
       })
     ).filter((item) => !item.point || distanceKm(SDU, item.point) > CAMPUS_RADIUS_KM);
     const item = preciseItem(items) ?? (approximate ? roughItem(items) : null);
@@ -99,7 +97,7 @@ export function createDgis({ key, db, fetchImpl = fetch, fallback = createOsmGeo
   async function loadReviews(address) {
     const items = await catalog({
       path: '/geocode',
-      query: { q: addressQuery(address), fields: 'items.point,items.reviews' },
+      query: { q: geocodeQuery(address) ?? address, fields: 'items.point,items.reviews' },
     });
     const item = preciseItem(items);
     if (!item) return { status: 'no_match', rating: null, count: 0, reviews: [] };

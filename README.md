@@ -109,6 +109,17 @@ The import replaces earlier krisha.kz ads and every test ad, and keeps Telegram 
 
 The CSV file and the photos stay out of Git. The krisha.kz agreement forbids copying its listings without written permission, so get that permission before any public launch.
 
+## Ads from Telegram
+
+`npm run import:telegram` reads the channels in `TELEGRAM_CHANNELS` (log in first with `npm run telegram:login`). Gemini reads each post, and only rentals in the served area are kept: Kaskelen within 12 km of SDU, and the villages between Kaskelen and Almaty, from Долан and Алмалыбак to Коксай and Almaty Arena. For channels about all of Almaty, list them in `TELEGRAM_AREA_CHANNELS` too: then only posts that name Kaskelen, SDU or one of those villages reach the AI.
+
+```
+TELEGRAM_CHANNELS=SDU_housing,kvartira_v_almaty
+TELEGRAM_AREA_CHANNELS=kvartira_v_almaty
+```
+
+Each run adds at most 12 ads and asks the AI about at most 40 posts, so run it again for more.
+
 ## Try the rental flow
 
 Rent and buy requests work for ads that people post on this site. Imported ads link to their source page instead, because their owners are not on this site.

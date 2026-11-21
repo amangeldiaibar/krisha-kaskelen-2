@@ -14,6 +14,8 @@ const dataDir = process.env.DATA_DIR || path.join(root, 'data');
 const DEFAULT_GEMINI_MODEL = 'gemini-flash-lite-latest';
 // The PostgreSQL server that `npm run db` starts. It accepts connections only from this computer.
 const LOCAL_DATABASE_URL = 'postgres://krisha:krisha@localhost:54329/krisha';
+/** "a, @b" -> ["a", "b"] */
+const channelList = (value) => (value || '').split(',').map((name) => name.trim().replace(/^@/, '')).filter(Boolean);
 
 export const config = {
   root,
@@ -33,7 +35,9 @@ export const config = {
     apiId: Number(process.env.TELEGRAM_API_ID || 0),
     apiHash: process.env.TELEGRAM_API_HASH || '',
     phone: process.env.TELEGRAM_PHONE || '',
-    channels: (process.env.TELEGRAM_CHANNELS || '').split(',').map((name) => name.trim().replace(/^@/, '')).filter(Boolean),
+    channels: channelList(process.env.TELEGRAM_CHANNELS),
+    // Channels about all of Almaty: only posts that name Kaskelen or one of its neighbouring villages are read.
+    areaChannels: channelList(process.env.TELEGRAM_AREA_CHANNELS),
     sessionPath: path.join(dataDir, 'telegram.session'),
   },
 };

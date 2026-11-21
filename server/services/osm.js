@@ -1,12 +1,12 @@
 import { SDU } from '../config.js';
-import { distanceKm, streetPart } from '../geo.js';
+import { distanceKm } from '../geo.js';
+import { geocodeQuery, inServiceArea } from './area.js';
 
 const SEARCH = 'https://nominatim.openstreetmap.org/search';
 // Nominatim's usage policy: an identifying User-Agent and at most one request a second.
 const USER_AGENT = 'krisha-kaskelen/1.0 (student project)';
 const MIN_GAP_MS = 1100;
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const MAX_DISTANCE_FROM_SDU_KM = 12;
 const CAMPUS_RADIUS_KM = 0.08;
 const ROUGH_CATEGORIES = new Set(['highway', 'place', 'landuse']);
 
@@ -44,7 +44,7 @@ export function createOsmGeocoder({ db, fetchImpl = fetch, wait = (ms) => new Pr
     const found = (Array.isArray(places) ? places : [])
       .map((place) => ({ lat: Number(place.lat), lon: Number(place.lon), category: place.category, type: place.type }))
       // Flats are not on the campus, so a match there means the ad named SDU as a landmark.
-      .filter((place) => Number.isFinite(place.lat) && Number.isFinite(place.lon) && distanceKm(SDU, place) <= MAX_DISTANCE_FROM_SDU_KM && distanceKm(SDU, place) > CAMPUS_RADIUS_KM);
+      .filter((place) => Number.isFinite(place.lat) && Number.isFinite(place.lon) && inServiceArea(place) && distanceKm(SDU, place) > CAMPUS_RADIUS_KM);
     await db.run(
       `INSERT INTO dgis_cache (cache_key, body, fetched_at) VALUES ($1, $2, $3)
        ON CONFLICT (cache_key) DO UPDATE SET body = excluded.body, fetched_at = excluded.fetched_at`,
@@ -58,9 +58,9 @@ export function createOsmGeocoder({ db, fetchImpl = fetch, wait = (ms) => new Pr
    * quarter, never the whole town. Text after a dash, such as "— у моста", is a landmark, not an address.
    */
   async function geocode(address, { approximate = false } = {}) {
-    const street = streetPart(address);
-    if (!street) return null;
-    const places = await search(`${street}, Каскелен`);
+    const query = geocodeQuery(address);
+    if (!query) return null;
+    const places = await search(query);
     const place =
       places.find((item) => item.category === 'building' || item.type === 'house') ??
       (approximate ? places.find((item) => ROUGH_CATEGORIES.has(item.category) && !['city', 'town', 'administrative'].includes(item.type)) : null);
