@@ -20,7 +20,7 @@ export async function verifyPassword(password, stored) {
   return crypto.timingSafeEqual(actual, Buffer.from(hash, 'hex'));
 }
 
-const tokenHash = (token) => crypto.createHash('sha256').update(token).digest('hex');
+export const tokenHash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
 export async function createSession(db, userId) {
   const token = crypto.randomBytes(32).toString('hex');

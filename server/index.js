@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { openDatabase } from './open-db.js';
 import { createApp } from './app.js';
 import { createDgis } from './services/dgis.js';
+import { createMailer } from './services/mail.js';
 import { createGeminiModerator, createUncheckedModerator } from './services/moderation.js';
 import { createSearchParser } from './services/search.js';
 import { createWorker } from './services/worker.js';
@@ -47,7 +48,11 @@ const app = createApp({
   searchParser: createSearchParser({ apiKey: config.geminiKey, model }),
   secureCookies: config.isProduction,
   onContentChanged: runWorker,
+  mailer: createMailer({ smtpUrl: config.smtpUrl, from: config.mailFrom }),
+  publicUrl: config.publicUrl || `http://localhost:${config.port}`,
 });
+if (config.isProduction && !config.publicUrl) console.warn('Set PUBLIC_URL, so links in password reset letters point to the site.');
+if (!config.smtpUrl) console.log('Password reset letters are printed here, because SMTP_URL is not set.');
 
 setInterval(runWorker, WORKER_INTERVAL_MS).unref();
 runWorker();

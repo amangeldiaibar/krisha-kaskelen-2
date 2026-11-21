@@ -7,6 +7,7 @@ import Compare from './pages/Compare.jsx';
 import Admin from './pages/Admin.jsx';
 import Listing from './pages/Listing.jsx';
 import Support from './pages/Support.jsx';
+import { ForgotPassword, ResetPassword } from './pages/Auth.jsx';
 import { pageNumbers } from './components/Shared.jsx';
 
 const item = (over) => ({
@@ -165,6 +166,29 @@ describe('support', () => {
     fireEvent.change(screen.getByLabelText('Ваш ответ'), { target: { value: 'Нажмите «Редактировать».' } });
     fireEvent.click(screen.getByRole('button', { name: 'Ответить' }));
     await waitFor(() => expect(calls.find((call) => call.path === '/admin/support/4')?.body).toEqual({ reply: 'Нажмите «Редактировать».' }));
+  });
+});
+
+describe('forgot password', () => {
+  it('asks for a link and says it was sent without telling whether the account exists', async () => {
+    const calls = mockApi({ '/auth/me': { user: null }, '/auth/forgot': { sent: true } });
+    show('/ru/forgot', <ForgotPassword />, '/:lang/forgot');
+    fireEvent.change(await screen.findByLabelText(/email/i), { target: { value: 'a@x.kz' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить ссылку' }));
+    expect(await screen.findByText(/мы отправили ссылку на его почту/)).toBeTruthy();
+    expect(calls.find((call) => call.path === '/auth/forgot').body).toEqual({ login: 'a@x.kz', lang: 'ru' });
+  });
+
+  it('sets the new password from the link and checks both fields match', async () => {
+    const calls = mockApi({ '/auth/me': { user: null }, '/auth/reset': { user: { id: 1, name: 'Dias', role: 'user' } } });
+    const token = 'a'.repeat(64);
+    show(`/ru/reset?token=${token}`, <ResetPassword />, '/:lang/reset');
+    fireEvent.change(await screen.findByLabelText(/^Новый пароль/), { target: { value: 'new-password-1' } });
+    fireEvent.change(screen.getByLabelText('Повторите пароль'), { target: { value: 'other-password' } });
+    expect(screen.getByText('Пароли не совпадают.')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Повторите пароль'), { target: { value: 'new-password-1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить и войти' }));
+    await waitFor(() => expect(calls.find((call) => call.path === '/auth/reset')?.body).toEqual({ token, password: 'new-password-1' }));
   });
 });
 

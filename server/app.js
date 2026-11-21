@@ -7,7 +7,8 @@ import { rateLimit } from 'express-rate-limit';
 import { SDU } from './config.js';
 import { isUniqueViolation } from './db.js';
 import { distanceKm } from './geo.js';
-import { COOKIE, USER_COLUMNS, createSession, destroySession, hashPassword, loadUser, readCookie, requireUser, verifyPassword } from './auth.js';
+import { COOKIE, USER_COLUMNS, createSession, destroySession, hashPassword, loadUser, readCookie, requireUser, tokenHash, verifyPassword } from './auth.js';
+import { createMailer } from './services/mail.js';
 import { normalizePhone } from '../shared/phones.js';
 import { sniffImage } from './images.js';
 import { DgisError } from './services/dgis.js';
@@ -97,7 +98,7 @@ function validateListing(body) {
 
 const langOf = (req) => (LANGS.has(req.body?.lang) ? req.body.lang : 'ru');
 
-export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = createSearchParser(), secureCookies = false, authRateLimit = 30, onContentChanged = () => {} }) {
+export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = createSearchParser(), secureCookies = false, authRateLimit = 30, onContentChanged = () => {}, mailer = createMailer({}), publicUrl = 'http://localhost:5173' }) {
   fs.mkdirSync(uploadsDir, { recursive: true });
   const app = express();
   app.disable('x-powered-by');
@@ -244,6 +245,61 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
   });
 
   app.get('/api/auth/me', (req, res) => res.json({ user: req.user }));
+
+  // Forgot password: a one-time link to the account's email. The answer is the same whether
+  // the account exists or not, so nobody can find out who is registered.
+  const RESET_TTL_MS = 30 * 60 * 1000;
+  const RESETS_PER_HOUR = 3;
+  const RESET_LETTERS = {
+    ru: { subject: 'Сброс пароля на Krisha Kaskelen', body: (name, link) => `Здравствуйте, ${name}!\n\nЧтобы задать новый пароль, откройте ссылку:\n${link}\n\nСсылка работает 30 минут и только один раз. Если вы не просили сбросить пароль, просто удалите это письмо.` },
+    en: { subject: 'Reset your Krisha Kaskelen password', body: (name, link) => `Hello, ${name}!\n\nTo set a new password, open this link:\n${link}\n\nIt works for 30 minutes and only once. If you did not ask to reset your password, just delete this letter.` },
+    kk: { subject: 'Krisha Kaskelen құпиясөзін қалпына келтіру', body: (name, link) => `Сәлеметсіз бе, ${name}!\n\nЖаңа құпиясөз орнату үшін мына сілтемені ашыңыз:\n${link}\n\nСілтеме 30 минут және бір рет қана жұмыс істейді. Егер сіз құпиясөзді қалпына келтіруді сұрамасаңыз, бұл хатты өшіре салыңыз.` },
+  };
+
+  app.post('/api/auth/forgot', authLimiter, async (req, res) => {
+    const login = String(req.body?.login ?? '').trim().slice(0, 200);
+    if (!login) throw fieldError('login');
+    const lang = RESET_LETTERS[req.body?.lang] ? req.body.lang : 'ru';
+    const user = await db.get('SELECT id, name, email, blocked_at FROM users WHERE lower(email) = lower($1) OR phone = $2', [login, normalizePhone(login) ?? login]);
+    if (user && !user.blocked_at) {
+      const { n } = await db.get(`SELECT COUNT(*)::int AS n FROM password_resets WHERE user_id = $1 AND created_at > now() - interval '1 hour'`, [user.id]);
+      if (n < RESETS_PER_HOUR) {
+        const token = crypto.randomBytes(32).toString('hex');
+        await db.run('INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES ($1, $2, $3)', [tokenHash(token), user.id, Date.now() + RESET_TTL_MS]);
+        const link = `${publicUrl}/${lang}/reset?token=${token}`;
+        const letter = RESET_LETTERS[lang];
+        try {
+          await mailer.send({ to: user.email, subject: letter.subject, text: letter.body(user.name, link) });
+        } catch (error) {
+          console.error(`Could not send the reset letter: ${error.message}`);
+          throw new HttpError(503, 'mail_unavailable');
+        }
+      }
+    }
+    res.json({ sent: true });
+  });
+
+  app.post('/api/auth/reset', authLimiter, async (req, res) => {
+    const token = String(req.body?.token ?? '');
+    const password = String(req.body?.password ?? '');
+    if (!/^[0-9a-f]{64}$/.test(token)) throw new HttpError(400, 'reset_link_invalid');
+    if (password.length < 8 || password.length > 200) throw fieldError('password');
+    const reset = await db.get(
+      `SELECT password_resets.user_id FROM password_resets JOIN users ON users.id = password_resets.user_id
+       WHERE token_hash = $1 AND used_at IS NULL AND expires_at > $2 AND users.blocked_at IS NULL`,
+      [tokenHash(token), Date.now()],
+    );
+    if (!reset) throw new HttpError(400, 'reset_link_invalid');
+    const hash = await hashPassword(password);
+    await db.transaction(async (tx) => {
+      await tx.run('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, reset.user_id]);
+      // Every link of this account stops working, and every device is logged out.
+      await tx.run('UPDATE password_resets SET used_at = now() WHERE user_id = $1 AND used_at IS NULL', [reset.user_id]);
+      await tx.run('DELETE FROM sessions WHERE user_id = $1', [reset.user_id]);
+    });
+    await setSession(res, reset.user_id);
+    res.json({ user: await publicUser(reset.user_id) });
+  });
 
   app.put('/api/auth/profile', requireUser, upload.single('photo'), async (req, res) => {
     const name = String(req.body?.name ?? '').trim();

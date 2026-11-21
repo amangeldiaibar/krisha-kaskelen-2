@@ -31,6 +31,11 @@ export const config = {
   dgisKey: process.env.DGIS_API_KEY || '',
   geminiKey: process.env.GEMINI_API_KEY || '',
   moderationModel: process.env.MODERATION_MODEL || DEFAULT_GEMINI_MODEL,
+  // Password reset letters. Without SMTP_URL they are printed to the console.
+  smtpUrl: process.env.SMTP_URL || '',
+  mailFrom: process.env.MAIL_FROM || 'Krisha Kaskelen <no-reply@krisha-kaskelen.local>',
+  // Where links in letters point. The Vite dev server is on 5173.
+  publicUrl: (process.env.PUBLIC_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5173')).replace(/\/$/, ''),
   telegram: {
     apiId: Number(process.env.TELEGRAM_API_ID || 0),
     apiHash: process.env.TELEGRAM_API_HASH || '',

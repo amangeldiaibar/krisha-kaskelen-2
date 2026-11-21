@@ -136,6 +136,14 @@ CREATE TABLE IF NOT EXISTS support_tickets (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS support_tickets_user ON support_tickets(user_id);
+-- One-time links from "Forgot password". Only a hash of the token is kept, like sessions.
+CREATE TABLE IF NOT EXISTS password_resets (
+  token_hash text PRIMARY KEY,
+  user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at bigint NOT NULL,
+  used_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS moderated_by integer REFERENCES users(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS listings_duplicate_of ON listings(duplicate_of);
 CREATE TABLE IF NOT EXISTS reports (
@@ -170,7 +178,7 @@ CREATE TABLE IF NOT EXISTS admin_log (
 `;
 
 /** Tables in an order that respects foreign keys. */
-export const TABLES = ['users', 'sessions', 'listings', 'photos', 'reviews', 'favorites', 'conversations', 'messages', 'deal_requests', 'dgis_cache', 'reports', 'duplicate_dismissals', 'admin_log', 'roommates', 'support_tickets'];
+export const TABLES = ['users', 'sessions', 'listings', 'photos', 'reviews', 'favorites', 'conversations', 'messages', 'deal_requests', 'dgis_cache', 'reports', 'duplicate_dismissals', 'admin_log', 'roommates', 'support_tickets', 'password_resets'];
 
 export const isUniqueViolation = (error) => error?.code === '23505';
 

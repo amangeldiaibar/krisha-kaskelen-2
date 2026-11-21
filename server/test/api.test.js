@@ -30,6 +30,8 @@ const form = (over = {}) => {
 };
 
 let server, base, db, tmp, dgis, stopPostgres;
+// Letters the app sends, kept instead of being mailed.
+const letters = [];
 
 // Tests get their own PostgreSQL server and database, so they never touch the site's data.
 // Set TEST_DATABASE_URL to use another server instead. Its tables are wiped on every run.
@@ -80,7 +82,7 @@ before(async () => {
     reviewsForAddress: async () => ({ status: 'unavailable', rating: 4.5, count: 3, reviews: [] }),
     tile: async () => ({ type: 'image/png', body: PNG }),
   };
-  const app = createApp({ db, dgis, uploadsDir: tmp, authRateLimit: 100000 });
+  const app = createApp({ db, dgis, uploadsDir: tmp, authRateLimit: 100000, publicUrl: 'https://site.test', mailer: { send: async (letter) => { letters.push(letter); } } });
   await new Promise((resolve) => { server = app.listen(0, resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -1399,5 +1401,51 @@ describe('making admins', () => {
     const personId = await idOf(person);
     await admin(`/api/admin/users/${personId}/block`, { method: 'POST', json: { blocked: true } });
     assert.equal((await admin(`/api/admin/users/${personId}/admin`, { method: 'POST', json: { admin: true } })).data.error, 'user_blocked');
+  });
+});
+
+describe('forgot password', () => {
+  const linkToken = (letter) => letter.text.match(/https:\/\/site\.test\/ru\/reset\?token=([0-9a-f]{64})/)?.[1];
+
+  it('mails a one-time link that sets a new password and logs out every device', async () => {
+    const person = await newUser();
+    const { email, phone } = (await person('/api/auth/me')).data.user;
+    letters.length = 0;
+    // A phone number works as well as the email.
+    assert.deepEqual((await client()('/api/auth/forgot', { method: 'POST', json: { login: phone, lang: 'ru' } })).data, { sent: true });
+    assert.equal(letters.length, 1);
+    assert.equal(letters[0].to, email);
+    assert.match(letters[0].subject, /Сброс пароля/);
+    const token = linkToken(letters[0]);
+    assert.ok(token);
+    // Only a hash is stored.
+    assert.equal(await db.get('SELECT 1 FROM password_resets WHERE token_hash = $1', [token]), undefined);
+
+    const guest = client();
+    assert.equal((await guest('/api/auth/reset', { method: 'POST', json: { token, password: 'short' } })).data.field, 'password');
+    const reset = await guest('/api/auth/reset', { method: 'POST', json: { token, password: 'new-password-1' } });
+    assert.equal(reset.status, 200);
+    assert.equal(reset.data.user.email, email);
+    assert.equal((await guest('/api/auth/me')).data.user.email, email);
+    // The old session is gone, the link works once, and the new password logs in.
+    assert.equal((await person('/api/auth/me')).data.user, null);
+    assert.equal((await client()('/api/auth/reset', { method: 'POST', json: { token, password: 'another-pass-2' } })).data.error, 'reset_link_invalid');
+    assert.equal((await client()('/api/auth/login', { method: 'POST', json: { login: email, password: 'new-password-1' } })).status, 200);
+  });
+
+  it('answers the same for unknown accounts, limits letters and rejects expired links', async () => {
+    letters.length = 0;
+    assert.deepEqual((await client()('/api/auth/forgot', { method: 'POST', json: { login: 'nobody@example.com' } })).data, { sent: true });
+    assert.equal(letters.length, 0);
+
+    const person = await newUser();
+    const { email } = (await person('/api/auth/me')).data.user;
+    for (let i = 0; i < 5; i += 1) await client()('/api/auth/forgot', { method: 'POST', json: { login: email } });
+    assert.equal(letters.length, 3);
+
+    const token = linkToken(letters[0]);
+    await db.run('UPDATE password_resets SET expires_at = 0');
+    assert.equal((await client()('/api/auth/reset', { method: 'POST', json: { token, password: 'new-password-1' } })).data.error, 'reset_link_invalid');
+    assert.equal((await client()('/api/auth/reset', { method: 'POST', json: { token: 'abc', password: 'new-password-1' } })).data.error, 'reset_link_invalid');
   });
 });

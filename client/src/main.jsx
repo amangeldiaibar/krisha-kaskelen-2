@@ -6,7 +6,7 @@ import { LanguagePicker, Layout } from './components/Shared.jsx';
 import Home from './pages/Home.jsx';
 import Listing from './pages/Listing.jsx';
 import PostForm from './pages/PostForm.jsx';
-import { Login, Register } from './pages/Auth.jsx';
+import { ForgotPassword, Login, Register, ResetPassword } from './pages/Auth.jsx';
 import { Chat, Chats, Favorites, MyListings, Requests, Settings } from './pages/Account.jsx';
 import Compare from './pages/Compare.jsx';
 import Admin from './pages/Admin.jsx';
@@ -28,6 +28,8 @@ createRoot(document.getElementById('root')).render(
             <Route path="post" element={<PostForm />} />
             <Route path="login" element={<Login />} />
             <Route path="register" element={<Register />} />
+            <Route path="forgot" element={<ForgotPassword />} />
+            <Route path="reset" element={<ResetPassword />} />
             <Route path="settings" element={<Settings />} />
             <Route path="favorites" element={<Favorites />} />
             <Route path="mine" element={<MyListings />} />
