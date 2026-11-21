@@ -1107,6 +1107,13 @@ describe('search pages', () => {
     assert.equal((await client()('/api/listings?page=99')).data.page, 3);
     assert.equal((await client()('/api/listings?page=abc')).data.page, 1);
   });
+
+  it('shows the newest ads first unless another order is asked for', async () => {
+    const near = await addListing({ lat: 43.2072, lon: 76.6697 });
+    const far = await addListing({ lat: 43.2379, lon: 76.7628 });
+    assert.deepEqual((await client()('/api/listings')).data.items.slice(0, 2).map((item) => item.id), [far, near]);
+    assert.deepEqual((await client()('/api/listings?sort=distance')).data.items.slice(0, 2).map((item) => item.id), [near, far]);
+  });
 });
 
 describe('OpenStreetMap fallback geocoding', () => {

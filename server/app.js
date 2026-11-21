@@ -318,7 +318,8 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
     const hasMaxKm = Number.isFinite(maxKm) && maxKm > 0 && maxKm <= 50;
     if (hasMaxKm) where.push('lat IS NOT NULL');
     const rows = await db.all(`SELECT * FROM listings WHERE ${where.join(' AND ')} ORDER BY id DESC`, params);
-    const sort = SORTS.includes(req.query.sort) ? req.query.sort : 'distance';
+    // Newest first by default, so ads that were just approved are seen.
+    const sort = SORTS.includes(req.query.sort) ? req.query.sort : 'new';
     const items = (await presentAll(rows, req.user?.id)).filter((item) => !hasMaxKm || item.distanceKm <= maxKm).sort(SORTERS[sort]);
     // Distance is only known after present(), so the page is cut here and not in SQL.
     const pages = Math.max(1, Math.ceil(items.length / SEARCH_PAGE_SIZE));

@@ -7,7 +7,9 @@ import { CountUp, ListingCard, ListingsMap, NumberInput, Pager, SkeletonCards, S
 const FILTERS = ['deal', 'rooms', 'priceFrom', 'priceTo', 'yearFrom', 'yearTo', 'district', 'maxKm', 'features', 'sort', 'q'];
 const FEATURES = ['furniture', 'pets', 'internet', 'washer', 'parking', 'balcony', 'conditioner'];
 const DISTANCES = ['1', '1.5', '3', '5'];
-const SORTS = ['distance', 'price_asc', 'price_desc', 'new'];
+// Newest first by default, so ads that were just approved are seen.
+const DEFAULT_SORT = 'new';
+const SORTS = ['new', 'distance', 'price_asc', 'price_desc'];
 
 const PRICE_DIGITS = 11;
 const YEAR_DIGITS = 4;
@@ -100,7 +102,7 @@ function ActiveFilters({ applied, engine, onRemove, onReset }) {
   if (applied.district) chips.push(['district', t(applied.district)]);
   if (applied.maxKm) chips.push(['maxKm', t('chipKm', { n: applied.maxKm })]);
   for (const name of featureList(applied.features)) chips.push([`feature:${name}`, t(`amenity_${name}`)]);
-  if (applied.sort && applied.sort !== 'distance') chips.push(['sort', t(`sort_${applied.sort}`)]);
+  if (applied.sort && applied.sort !== DEFAULT_SORT) chips.push(['sort', t(`sort_${applied.sort}`)]);
   if (chips.length === 0) return null;
   return (
     <div className="active-filters" aria-live="polite">
@@ -218,7 +220,7 @@ export default function Home() {
             ))}
           </fieldset>
           <label>{t('sortBy')}
-            <select name="sort" value={values.sort || 'distance'} onChange={change}>
+            <select name="sort" value={values.sort || DEFAULT_SORT} onChange={change}>
               {SORTS.map((sort) => <option key={sort} value={sort}>{t(`sort_${sort}`)}</option>)}
             </select>
           </label>
