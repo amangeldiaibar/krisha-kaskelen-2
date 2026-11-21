@@ -117,10 +117,14 @@ export function photoFiles(photosDir, krishaId) {
     .map((name) => path.join(folder, name));
 }
 
-/** Ads that a new krisha.kz file replaces. Telegram ads and ads people posted stay. */
-const REPLACED = `source_type = 'test' OR (source_type = 'import' AND source_name = 'krisha.kz')`;
+/** Ads a new krisha.kz file manages. Telegram ads and ads people posted stay. */
+const KRISHA = `source_type = 'import' AND source_name = 'krisha.kz'`;
 
-/** Replaces earlier krisha.kz ads and test ads with the ads from the parser's file. */
+/**
+ * Brings krisha.kz ads in line with the parser's file. Ads already on the site keep their
+ * moderation and photos and only get the new price and details, new ads are added for
+ * moderation, and ads gone from the file are removed, as are test ads.
+ */
 export async function importKrisha({ db, rows, photosDir, uploadsDir, geocode }) {
   const listings = [];
   const seen = new Set();
@@ -128,23 +132,38 @@ export async function importKrisha({ db, rows, photosDir, uploadsDir, geocode })
     const listing = rowToListing(row);
     if (!listing || seen.has(listing.sourceUrl)) continue;
     seen.add(listing.sourceUrl);
+    listings.push(listing);
+  }
+  if (listings.length === 0) return { imported: 0, updated: 0, removed: 0, photos: 0 };
+
+  const existing = new Map((await db.all(`SELECT id, source_url FROM listings WHERE ${KRISHA}`)).map((row) => [row.source_url, row.id]));
+  const fresh = listings.filter((item) => !existing.has(item.sourceUrl));
+  for (const item of fresh) {
     let point = null;
-    if (listing.street) {
+    if (item.street) {
       try {
-        point = await geocode(listing.street, { approximate: true });
+        point = await geocode(item.street, { approximate: true });
       } catch {
         point = null;
       }
     }
-    listings.push({ ...listing, lat: point?.lat ?? null, lon: point?.lon ?? null });
+    item.lat = point?.lat ?? null;
+    item.lon = point?.lon ?? null;
   }
-  if (listings.length === 0) return { imported: 0, removed: 0, photos: 0 };
 
-  const oldFiles = await db.all(`SELECT photos.filename FROM photos JOIN listings ON listings.id = photos.listing_id WHERE ${REPLACED}`);
-  const inserted = await db.transaction(async (tx) => {
-    const removed = await tx.run(`DELETE FROM listings WHERE ${REPLACED}`);
+  const gone = `(source_type = 'test' OR (${KRISHA} AND NOT (source_url = ANY($1))))`;
+  const urls = [...seen];
+  const oldFiles = await db.all(`SELECT photos.filename FROM photos JOIN listings ON listings.id = photos.listing_id WHERE ${gone}`, [urls]);
+  const result = await db.transaction(async (tx) => {
+    const removed = await tx.run(`DELETE FROM listings WHERE ${gone}`, [urls]);
+    for (const item of listings.filter((entry) => existing.has(entry.sourceUrl))) {
+      await tx.run(
+        `UPDATE listings SET title = $1, price = $2, rooms = $3, area = $4, floor = $5, floors = $6, address = $7, description = $8 WHERE id = $9`,
+        [item.title, item.price, item.rooms, item.area, item.floor, item.floors, item.address, item.description, existing.get(item.sourceUrl)],
+      );
+    }
     const ids = [];
-    for (const item of listings) {
+    for (const item of fresh) {
       const { id } = await tx.get(
         `INSERT INTO listings (source_type, source_name, source_url, title, deal, price, rooms, area, floor, floors, address, description, lat, lon, status)
          VALUES ('import', 'krisha.kz', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending') RETURNING id`,
@@ -157,9 +176,9 @@ export async function importKrisha({ db, rows, photosDir, uploadsDir, geocode })
   for (const { filename } of oldFiles) fs.rmSync(path.join(uploadsDir, filename), { force: true });
 
   let photos = 0;
-  for (const [index, item] of listings.entries()) {
+  for (const [index, item] of fresh.entries()) {
     const buffers = photoFiles(photosDir, item.krishaId).map((file) => fs.readFileSync(file));
-    photos += await addListingPhotos({ db, listingId: inserted.ids[index], buffers, uploadsDir });
+    photos += await addListingPhotos({ db, listingId: result.ids[index], buffers, uploadsDir });
   }
-  return { imported: listings.length, removed: inserted.removed, photos };
+  return { imported: fresh.length, updated: listings.length - fresh.length, removed: result.removed, photos };
 }

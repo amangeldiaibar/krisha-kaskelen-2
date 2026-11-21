@@ -1,26 +1,35 @@
 const BATCH_SIZE = 5;
+/** How long to leave 2GIS or the AI alone after a failure, so a blocked key or an overloaded model is not hit every tick. */
+const PAUSE_MS = 10 * 60_000;
 
 /** Fills in missing coordinates and moderates pending listings and reviews. */
-export function createWorker({ db, dgis, moderator, log = console }) {
+export function createWorker({ db, dgis, moderator, log = console, now = Date.now }) {
   let running = false;
+  let geocodePausedUntil = 0;
+  let moderationPausedUntil = 0;
 
   async function geocodeMissing() {
-    const rows = await db.all('SELECT id, address FROM listings WHERE lat IS NULL AND address IS NOT NULL LIMIT $1', [BATCH_SIZE]);
+    if (now() < geocodePausedUntil) return;
+    // An address 2GIS did not find is tried again a day later, not on every tick.
+    const rows = await db.all(
+      `SELECT id, address FROM listings WHERE lat IS NULL AND address IS NOT NULL
+       AND (geocode_tried_at IS NULL OR geocode_tried_at < now() - interval '1 day') ORDER BY id LIMIT $1`,
+      [BATCH_SIZE],
+    );
     for (const row of rows) {
       try {
         const point = await dgis.geocode(row.address);
-        if (point) {
-          await db.run('UPDATE listings SET lat = $1, lon = $2 WHERE id = $3', [point.lat, point.lon, row.id]);
-        }
+        await db.run('UPDATE listings SET lat = $1, lon = $2, geocode_tried_at = now() WHERE id = $3', [point?.lat ?? null, point?.lon ?? null, row.id]);
       } catch (error) {
-        log.warn(`Geocoding listing ${row.id} failed: ${error.message}`);
+        geocodePausedUntil = now() + PAUSE_MS;
+        log.warn(`Geocoding listing ${row.id} failed, pausing geocoding for 10 minutes: ${error.message}`);
         return;
       }
     }
   }
 
   async function moderatePending() {
-    if (!moderator) return;
+    if (!moderator || now() < moderationPausedUntil) return;
     // The edit time is read as text, so the check below compares it exactly, to the microsecond.
     const listings = await db.all(`SELECT *, updated_at::text AS edited FROM listings WHERE status = 'pending' LIMIT $1`, [BATCH_SIZE]);
     for (const listing of listings) {
@@ -34,7 +43,9 @@ export function createWorker({ db, dgis, moderator, log = console }) {
           [verdict.decision === 'approve' ? 'approved' : 'rejected', verdict.reason, listing.id, listing.edited],
         );
       } catch (error) {
-        log.warn(`Moderating listing ${listing.id} failed: ${error.message}`);
+        moderationPausedUntil = now() + PAUSE_MS;
+        log.warn(`Moderating listing ${listing.id} failed, pausing moderation for 10 minutes: ${error.message}`);
+        return;
       }
     }
     const reviews = await db.all(`SELECT * FROM reviews WHERE status = 'pending' LIMIT $1`, [BATCH_SIZE]);

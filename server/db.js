@@ -110,6 +110,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_at timestamptz;
 -- A confirmed duplicate points at the ad that stays visible, and leaves the search.
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS duplicate_of integer REFERENCES listings(id) ON DELETE SET NULL;
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS moderated_by integer REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE listings ADD COLUMN IF NOT EXISTS geocode_tried_at timestamptz;
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS moderated_by integer REFERENCES users(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS listings_duplicate_of ON listings(duplicate_of);
 CREATE TABLE IF NOT EXISTS reports (
