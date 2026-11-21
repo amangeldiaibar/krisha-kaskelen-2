@@ -1,12 +1,11 @@
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { isAdmin } from '../shared/permissions.js';
 
 const scrypt = promisify(crypto.scrypt);
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 export const COOKIE = 'sid';
 /** What the site may show about a user. The profile photo becomes a ready URL. */
-export const USER_COLUMNS = `users.id, users.name, users.phone, users.email, users.role, users.permissions,
+export const USER_COLUMNS = `users.id, users.name, users.phone, users.email, users.role,
   CASE WHEN users.avatar IS NULL THEN NULL ELSE '/uploads/' || users.avatar END AS avatar`;
 
 export async function hashPassword(password) {
@@ -65,6 +64,6 @@ export function requireUser(req, res, next) {
 
 export function requireAdmin(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'auth_required' });
-  if (!isAdmin(req.user)) return res.status(403).json({ error: 'forbidden' });
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
   next();
 }

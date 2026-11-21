@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
-import { can, isAdmin } from '../../../shared/permissions.js';
 import { useAuth, useFetch, useI18n, usePolling, useToast } from '../context.jsx';
 import { AdminDeleteButton, CompareButton, sourceName, DeleteListingButton, Distance, FavoriteButton, HouseArt, ListingsMap, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
 
@@ -422,7 +421,7 @@ export default function Listing() {
   return (
     <main className="wrap">
       <p className="crumb"><Link to={path()}>{t('allApartments')}</Link> / {label}</p>
-      {(item.isOwner || isAdmin(user)) && item.status && item.status !== 'approved' && (
+      {(item.isOwner || user?.role === 'admin') && item.status && item.status !== 'approved' && (
         <p className="notice">
           <span className={`status ${item.status}`}>{t(`status_${item.status}`)}</span>
           {item.moderationReason && ` ${t('moderationReason', { r: item.moderationReason })}`}
@@ -481,7 +480,7 @@ export default function Listing() {
               <CompareButton item={item} inline />
               {item.isOwner && <Link className="btn ghost" to={path(`/listing/${item.id}/edit`)}>{t('edit')}</Link>}
               {item.isOwner && <DeleteListingButton item={item} onDeleted={() => navigate(path('/mine'))} />}
-              {!item.isOwner && can(user, 'listings') && <AdminDeleteButton id={item.id} onDone={() => navigate(path('/'))} className="btn danger" />}
+              {!item.isOwner && user?.role === 'admin' && <AdminDeleteButton id={item.id} onDone={() => navigate(path('/'))} className="btn danger" />}
             </div>
           </section>
           <ContactPanel item={item} />
