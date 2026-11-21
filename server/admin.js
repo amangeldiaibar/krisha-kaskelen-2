@@ -1,4 +1,5 @@
 import { requireAdmin } from './auth.js';
+import { PERMISSIONS, can, isOwner } from '../shared/permissions.js';
 import { SDU } from './config.js';
 import { distanceKm } from './geo.js';
 import { HttpError, fieldError, idParam, toInt } from './http.js';
@@ -110,8 +111,11 @@ export function registerAdminRoutes(app, { db, removeFiles, onContentChanged }) 
   };
 
   app.use('/api/admin', requireAdmin);
+  // Each section needs its own permission. The overview is open to every admin.
+  const need = (permission) => (req, _res, next) => next(can(req.user, permission) ? undefined : new HttpError(403, 'forbidden'));
+  for (const permission of PERMISSIONS) app.use(`/api/admin/${permission}`, need(permission));
 
-  app.get('/api/admin/overview', async (_req, res) => {
+  app.get('/api/admin/overview', async (req, res) => {
     const [counts, sources, pairs] = await Promise.all([
       db.get(`SELECT
         (SELECT COUNT(*) FROM listings WHERE status = 'pending') AS pending_listings,
@@ -121,7 +125,9 @@ export function registerAdminRoutes(app, { db, removeFiles, onContentChanged }) 
         (SELECT COUNT(*) FROM reviews WHERE status = 'rejected') AS rejected_reviews,
         (SELECT COUNT(*) FROM reports WHERE status = 'open') AS open_reports,
         (SELECT COUNT(*) FROM users) AS users,
-        (SELECT COUNT(*) FROM users WHERE blocked_at IS NOT NULL) AS blocked_users`),
+        (SELECT COUNT(*) FROM users WHERE blocked_at IS NOT NULL) AS blocked_users,
+        (SELECT COUNT(*) FROM users WHERE role IN ('admin', 'owner')) AS admins,
+        (SELECT COUNT(*) FROM admin_log WHERE admin_id = $1 AND created_at >= date_trunc('day', now())) AS my_actions_today`, [req.user.id]),
       db.all(`SELECT CASE WHEN source_type = 'app' THEN 'app' WHEN source_type = 'test' THEN 'test'
                 WHEN source_name LIKE 't.me/%' THEN 'telegram' WHEN source_name = 'krisha.kz' THEN 'krisha' ELSE 'other' END AS source,
               COUNT(*) AS n FROM listings GROUP BY 1 ORDER BY 2 DESC`),
@@ -136,6 +142,8 @@ export function registerAdminRoutes(app, { db, removeFiles, onContentChanged }) 
       openReports: counts.open_reports,
       users: counts.users,
       blockedUsers: counts.blocked_users,
+      admins: counts.admins,
+      myActionsToday: counts.my_actions_today,
       duplicatePairs: pairs.length,
       sources: Object.fromEntries(sources.map((row) => [row.source, row.n])),
     });
@@ -314,12 +322,12 @@ export function registerAdminRoutes(app, { db, removeFiles, onContentChanged }) 
   app.get('/api/admin/users', async (req, res) => {
     const text = String(req.query.q ?? '').trim().slice(0, 100);
     const rows = await db.all(
-      `SELECT users.id, users.name, users.phone, users.email, users.role, users.blocked_at, users.created_at,
+      `SELECT users.id, users.name, users.phone, users.email, users.role, users.permissions, users.blocked_at, users.created_at,
          (SELECT COUNT(*) FROM listings WHERE listings.user_id = users.id) AS listing_count,
          (SELECT COUNT(*) FROM reports JOIN listings ON listings.id = reports.listing_id WHERE listings.user_id = users.id AND reports.status != 'dismissed') AS report_count
        FROM users
        ${text ? 'WHERE users.name ILIKE $1 OR users.email ILIKE $1 OR users.phone ILIKE $1' : ''}
-       ORDER BY users.id DESC LIMIT ${PAGE_SIZE}`,
+       ORDER BY CASE users.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, users.id DESC LIMIT ${PAGE_SIZE}`,
       text ? [`%${text}%`] : [],
     );
     res.json({
@@ -329,6 +337,7 @@ export function registerAdminRoutes(app, { db, removeFiles, onContentChanged }) 
         phone: row.phone,
         email: row.email,
         role: row.role,
+        permissions: row.role === 'user' ? [] : row.role === 'owner' || row.permissions === null ? PERMISSIONS : row.permissions,
         blocked: Boolean(row.blocked_at),
         createdAt: row.created_at,
         listingCount: row.listing_count,
@@ -341,7 +350,7 @@ export function registerAdminRoutes(app, { db, removeFiles, onContentChanged }) 
   app.post('/api/admin/users/:id/block', async (req, res) => {
     const row = await db.get('SELECT id, role FROM users WHERE id = $1', [idParam(req.params.id)]);
     if (!row) throw new HttpError(404, 'not_found');
-    if (row.id === req.user.id || row.role === 'admin') throw new HttpError(403, 'cannot_block_admin');
+    if (row.id === req.user.id || row.role !== 'user') throw new HttpError(403, 'cannot_block_admin');
     const blocked = req.body?.blocked === true;
     await db.transaction(async (tx) => {
       await tx.run(`UPDATE users SET blocked_at = ${blocked ? 'now()' : 'NULL'} WHERE id = $1`, [row.id]);
@@ -351,6 +360,25 @@ export function registerAdminRoutes(app, { db, removeFiles, onContentChanged }) 
     });
     onContentChanged();
     res.json({ blocked });
+  });
+
+  // Only the owner makes admins and chooses what each may do.
+  app.post('/api/admin/users/:id/role', async (req, res) => {
+    if (!isOwner(req.user)) throw new HttpError(403, 'owner_only');
+    const row = await db.get('SELECT id, role, blocked_at FROM users WHERE id = $1', [idParam(req.params.id)]);
+    if (!row) throw new HttpError(404, 'not_found');
+    if (row.id === req.user.id || row.role === 'owner') throw new HttpError(403, 'cannot_change_owner');
+    const role = req.body?.role;
+    if (role !== 'user' && role !== 'admin') throw fieldError('role');
+    const asked = Array.isArray(req.body?.permissions) ? req.body.permissions : [];
+    const permissions = role === 'admin' ? PERMISSIONS.filter((name) => asked.includes(name)) : null;
+    if (role === 'admin' && permissions.length === 0) throw fieldError('permissions');
+    if (role === 'admin' && row.blocked_at) throw new HttpError(409, 'user_blocked');
+    await db.transaction(async (tx) => {
+      await tx.run('UPDATE users SET role = $1, permissions = $2 WHERE id = $3', [role, permissions, row.id]);
+      await log(tx, req.user.id, role === 'admin' ? 'grant' : 'revoke', 'user', row.id, permissions?.join(', ') ?? null);
+    });
+    res.json({ role, permissions: permissions ?? [] });
   });
 
   app.get('/api/admin/log', async (_req, res) => {

@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth, useFetch, useI18n, useToast } from '../context.jsx';
-import { AdminDeleteButton, HouseArt, RequireLogin, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
+import { AdminDeleteButton, CountUp, HouseArt, RequireLogin, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
+import { PERMISSIONS, can, isAdmin, isOwner } from '../../../shared/permissions.js';
 
 const TABS = ['overview', 'listings', 'duplicates', 'reports', 'reviews', 'users', 'log'];
 const LOCALES = { ru: 'ru-RU', kk: 'kk-KZ', en: 'en-GB' };
@@ -98,9 +99,9 @@ function Overview({ data, onOpen }) {
   return (
     <>
       <div className="tiles">
-        {tiles.map(([key, value, open, urgent]) => (
-          <button key={key} type="button" className={`tile${urgent ? ' urgent' : ''}`} onClick={open}>
-            <span className="tile-value">{value}</span>
+        {tiles.map(([key, value, open, urgent], index) => (
+          <button key={key} type="button" className={`tile${urgent ? ' urgent' : ''}`} style={{ '--i': index }} onClick={open}>
+            <span className="tile-value"><CountUp value={value} format={(shown) => String(Math.round(shown))} /></span>
             <span className="tile-label">{t(key)}</span>
           </button>
         ))}
@@ -349,6 +350,7 @@ function ReviewsTab({ params, setFilter }) {
 
 function UsersTab({ params, setFilter }) {
   const { t } = useI18n();
+  const { user } = useAuth();
   const date = useDate();
   const [q, setQ] = useState(params.q ?? '');
   const { data, loading, error, reload } = useFetch(`/admin/users${params.q ? `?q=${encodeURIComponent(params.q)}` : ''}`);
@@ -363,32 +365,95 @@ function UsersTab({ params, setFilter }) {
       <Status error={error} onRetry={reload} />
       {data?.items.length === 0 && <p className="state">{t('noItems')}</p>}
       <div className="panel user-list">
-        {data?.items.map((person) => (
-          <div className="user-row" key={person.id}>
-            <div>
-              <b>{person.name}</b>
-              {person.isMe && <span className="meta"> ({t('you')})</span>}
-              {person.role === 'admin' && <span className="status approved">{t('roleAdmin')}</span>}
-              {person.blocked && <span className="status rejected">{t('blockedLabel')}</span>}
-              <div className="meta">{person.email} · {person.phone} · {date(person.createdAt)}</div>
-              <div className="meta">{t('userAds', { n: person.listingCount })}{person.reportCount > 0 ? ` · ${t('reportsCount', { n: person.reportCount })}` : ''}</div>
+        {data?.items.map((person, index) => (
+          <div className={`user-row role-${person.role}`} key={person.id} style={{ '--i': index }}>
+            <div className="user-main">
+              <span className="user-avatar" aria-hidden="true">{person.name.trim().charAt(0).toUpperCase()}</span>
+              <div>
+                <b>{person.name}</b>
+                {person.isMe && <span className="meta"> ({t('you')})</span>}
+                {person.role === 'owner' && <span className="role-pill owner">♛ {t('roleOwner')}</span>}
+                {person.role === 'admin' && <span className="role-pill">{t('roleAdmin')}</span>}
+                {person.blocked && <span className="status rejected">{t('blockedLabel')}</span>}
+                <div className="meta">{person.email} · {person.phone} · {date(person.createdAt)}</div>
+                <div className="meta">{t('userAds', { n: person.listingCount })}{person.reportCount > 0 ? ` · ${t('reportsCount', { n: person.reportCount })}` : ''}</div>
+                {person.role === 'admin' && (
+                  <div className="perm-chips">
+                    {person.permissions.map((name) => <span key={name} className="perm-chip">{t(`permShort_${name}`)}</span>)}
+                  </div>
+                )}
+              </div>
             </div>
-            {person.role !== 'admin' && (
-              <button
-                className={`btn small ${person.blocked ? 'ghost' : 'danger'}`}
-                type="button"
-                disabled={busy}
-                onClick={() => run(`/admin/users/${person.id}/block`, { body: { blocked: !person.blocked } })}
-              >
-                {person.blocked ? t('unblock') : t('block')}
-              </button>
-            )}
+            <div className="actions">
+              {isOwner(user) && person.role !== 'owner' && !person.isMe && <AccessButton person={person} onDone={reload} />}
+              {person.role === 'user' && (
+                <button
+                  className={`btn small ${person.blocked ? 'ghost' : 'danger'}`}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => run(`/admin/users/${person.id}/block`, { body: { blocked: !person.blocked } })}
+                >
+                  {person.blocked ? t('unblock') : t('block')}
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>
     </>
   );
 }
+
+/** The owner turns admin rights on or off for a person and picks what they may do. */
+function AccessButton({ person, onDone }) {
+  const { t } = useI18n();
+  const dialog = useRef(null);
+  const [admin, setAdmin] = useState(person.role === 'admin');
+  const [chosen, setChosen] = useState(person.role === 'admin' ? person.permissions : ['listings', 'reviews']);
+  const { run, busy } = useAction(onDone);
+  const toggle = (name) => setChosen(chosen.includes(name) ? chosen.filter((item) => item !== name) : [...chosen, name]);
+  async function save() {
+    const body = admin ? { role: 'admin', permissions: chosen } : { role: 'user' };
+    if (await run(`/admin/users/${person.id}/role`, { body }, 'toastAccessSaved')) dialog.current?.close();
+  }
+  return (
+    <>
+      <button className="btn small access-btn" type="button" onClick={() => dialog.current?.showModal()}>{t('accessBtn')}</button>
+      <dialog ref={dialog} className="dialog access-dialog">
+        <h2>{t('accessTitle', { n: person.name })}</h2>
+        <p className="meta" style={{ marginTop: 4 }}>{t('accessHelp')}</p>
+        <label className="switch-row">
+          <span>
+            <b>{t('makeAdmin')}</b>
+            <span className="meta">{admin ? t('permCount', { n: chosen.length, m: PERMISSIONS.length }) : t('accessNone')}</span>
+          </span>
+          <input type="checkbox" role="switch" className="switch" checked={admin} onChange={(event) => setAdmin(event.target.checked)} />
+        </label>
+        <fieldset className={`perm-grid${admin ? '' : ' off'}`} disabled={!admin}>
+          <legend className="sr-only">{t('accessBtn')}</legend>
+          {PERMISSIONS.map((name, index) => (
+            <label key={name} className={`perm-card${chosen.includes(name) ? ' on' : ''}`} style={{ '--i': index }}>
+              <input type="checkbox" checked={chosen.includes(name)} onChange={() => toggle(name)} />
+              <span className="perm-icon" aria-hidden="true">{PERMISSION_ICONS[name]}</span>
+              <span><b>{t(`permShort_${name}`)}</b><span className="meta">{t(`perm_${name}`)}</span></span>
+            </label>
+          ))}
+        </fieldset>
+        {admin && (
+          <button type="button" className="link select-all" onClick={() => setChosen(chosen.length === PERMISSIONS.length ? [] : PERMISSIONS)}>
+            {chosen.length === PERMISSIONS.length ? t('selectNone') : t('selectAll')}
+          </button>
+        )}
+        <div className="actions" style={{ marginTop: 16 }}>
+          <button className="btn" type="button" disabled={busy || (admin && chosen.length === 0)} onClick={save}>{t('save')}</button>
+          <button className="btn ghost" type="button" onClick={() => dialog.current?.close()}>{t('accessCancel')}</button>
+        </div>
+      </dialog>
+    </>
+  );
+}
+
+const PERMISSION_ICONS = { listings: '🏠', duplicates: '⧉', reports: '⚑', reviews: '★', users: '👥', log: '☰' };
 
 function LogTab() {
   const { t } = useI18n();
@@ -411,18 +476,64 @@ function LogTab() {
   );
 }
 
+function greetingKey(hour) {
+  if (hour < 5) return 'greetNight';
+  if (hour < 12) return 'greetMorning';
+  if (hour < 18) return 'greetDay';
+  return 'greetEvening';
+}
+
+/** The top of the panel: who is working, what waits for them, and how much they did today. */
+function AdminHero({ user, data, onOpen }) {
+  const { t, lang } = useI18n();
+  const now = new Date();
+  const stats = data
+    ? [
+        ['heroPending', data.pendingListings, can(user, 'listings') && (() => onOpen('listings', { status: 'pending' }))],
+        ['heroReports', data.openReports, can(user, 'reports') && (() => onOpen('reports'))],
+        ['heroLive', data.liveListings, can(user, 'listings') && (() => onOpen('listings', { status: 'approved' }))],
+        ['heroToday', data.myActionsToday, can(user, 'log') && (() => onOpen('log'))],
+      ]
+    : [];
+  const granted = PERMISSIONS.filter((name) => can(user, name)).length;
+  return (
+    <header className="admin-hero">
+      <div className="hero-orbs" aria-hidden="true"><span /><span /><span /></div>
+      <div className="admin-hero-text">
+        <p className="hero-eyebrow">{t('admin')} · {t(greetingKey(now.getHours()))}</p>
+        <p className="hero-name">{user.name}</p>
+        <div className="hero-meta">
+          <span className={`role-pill ${isOwner(user) ? 'owner' : ''}`}>{isOwner(user) ? `♛ ${t('roleOwner')}` : t('roleAdmin')}</span>
+          {!isOwner(user) && <span>{t('permCount', { n: granted, m: PERMISSIONS.length })}</span>}
+          <span>{now.toLocaleDateString(LOCALES[lang], { weekday: 'long', day: 'numeric', month: 'long' })}</span>
+        </div>
+      </div>
+      <div className="hero-stats">
+        {stats.map(([key, value, open], index) => (
+          <button key={key} type="button" className="hero-stat" style={{ '--i': index }} disabled={!open} onClick={open || undefined}>
+            <span className="hero-stat-value"><CountUp value={value} format={(shown) => String(Math.round(shown))} /></span>
+            <span className="hero-stat-label">{t(key)}</span>
+          </button>
+        ))}
+      </div>
+    </header>
+  );
+}
+
 function AdminBody() {
   const { t } = useI18n();
   const { user } = useAuth();
   const [search, setSearch] = useSearchParams();
   const params = Object.fromEntries(search.entries());
-  const tab = TABS.includes(params.tab) ? params.tab : 'overview';
-  const overview = useFetch(user.role === 'admin' ? '/admin/overview' : null);
+  // Admins see only the sections they were given.
+  const tabs = TABS.filter((name) => name === 'overview' || can(user, name));
+  const tab = tabs.includes(params.tab) ? params.tab : 'overview';
+  const overview = useFetch(isAdmin(user) ? '/admin/overview' : null);
 
-  if (user.role !== 'admin') return <p className="state error">{t('err.forbidden')}</p>;
+  if (!isAdmin(user)) return <p className="state error">{t('err.forbidden')}</p>;
 
   const open = (next, filters = {}) => {
-    setSearch({ tab: next, ...filters });
+    setSearch({ tab: tabs.includes(next) ? next : 'overview', ...filters });
     overview.reload();
   };
   const setFilter = (changes) => setSearch(Object.fromEntries(Object.entries({ ...params, tab, ...changes }).filter(([, value]) => value)));
@@ -430,20 +541,23 @@ function AdminBody() {
 
   return (
     <>
+      <AdminHero user={user} data={overview.data} onOpen={open} />
       <nav className="admin-tabs" aria-label={t('admin')}>
-        {TABS.map((name) => (
+        {tabs.map((name) => (
           <button key={name} type="button" className={name === tab ? 'on' : undefined} aria-current={name === tab ? 'page' : undefined} onClick={() => open(name)}>
             {t(`tab_${name}`)}{counts[name] > 0 && <span className="badge">{counts[name]}</span>}
           </button>
         ))}
       </nav>
-      {tab === 'overview' && (overview.data ? <Overview data={overview.data} onOpen={open} /> : <Status loading={overview.loading} error={overview.error} onRetry={overview.reload} />)}
-      {tab === 'listings' && <ListingsTab key={params.q} params={params} setFilter={setFilter} />}
-      {tab === 'duplicates' && <DuplicatesTab />}
-      {tab === 'reports' && <ReportsTab params={params} setFilter={setFilter} />}
-      {tab === 'reviews' && <ReviewsTab params={params} setFilter={setFilter} />}
-      {tab === 'users' && <UsersTab key={params.q} params={params} setFilter={setFilter} />}
-      {tab === 'log' && <LogTab />}
+      <div className="admin-view" key={tab}>
+        {tab === 'overview' && (overview.data ? <Overview data={overview.data} onOpen={open} /> : <Status loading={overview.loading} error={overview.error} onRetry={overview.reload} />)}
+        {tab === 'listings' && <ListingsTab key={params.q} params={params} setFilter={setFilter} />}
+        {tab === 'duplicates' && <DuplicatesTab />}
+        {tab === 'reports' && <ReportsTab params={params} setFilter={setFilter} />}
+        {tab === 'reviews' && <ReviewsTab params={params} setFilter={setFilter} />}
+        {tab === 'users' && <UsersTab key={params.q} params={params} setFilter={setFilter} />}
+        {tab === 'log' && <LogTab />}
+      </div>
     </>
   );
 }
@@ -452,7 +566,7 @@ export default function Admin() {
   const { t } = useI18n();
   return (
     <main className="wrap adminpage">
-      <h1>{t('admin')}</h1>
+      <h1 className="sr-only">{t('admin')}</h1>
       <RequireLogin><AdminBody /></RequireLogin>
     </main>
   );

@@ -1271,3 +1271,53 @@ describe('service area: Kaskelen and the villages towards Almaty', () => {
     assert.equal(toListing({ ...fields, locality: 'Каскелен' }, 't', { username: 'x', messageId: 1 }).address, 'Жибек жолы 5');
   });
 });
+
+describe('owner and admin permissions', () => {
+  async function newOwner() {
+    const call = await newUser();
+    const { id } = (await call('/api/auth/me')).data.user;
+    await db.run(`UPDATE users SET role = 'owner' WHERE id = $1`, [id]);
+    return { call, id };
+  }
+  const idOf = async (call) => (await call('/api/auth/me')).data.user.id;
+
+  it('lets only the owner make admins, each with chosen permissions', async () => {
+    const owner = await newOwner();
+    const helper = await newUser();
+    const helperId = await idOf(helper);
+    const grant = (by, json) => by(`/api/admin/users/${helperId}/role`, { method: 'POST', json });
+
+    assert.equal((await grant(owner.call, { role: 'admin', permissions: ['reviews', 'reports', 'nonsense'] })).status, 200);
+    const me = (await helper('/api/auth/me')).data.user;
+    assert.equal(me.role, 'admin');
+    assert.deepEqual(me.permissions, ['reports', 'reviews']);
+    // Allowed sections open, the rest answer 403.
+    assert.equal((await helper('/api/admin/overview')).status, 200);
+    assert.equal((await helper('/api/admin/reviews')).status, 200);
+    assert.equal((await helper('/api/admin/reports')).status, 200);
+    assert.equal((await helper('/api/admin/listings')).status, 403);
+    assert.equal((await helper('/api/admin/users')).status, 403);
+    assert.equal((await helper(`/api/admin/listings/${await addListing()}`, { method: 'DELETE' })).status, 403);
+
+    // A full admin cannot make admins either: that is the owner's alone.
+    const fullAdmin = await newAdmin();
+    assert.equal((await grant(fullAdmin, { role: 'admin', permissions: ['users'] })).data.error, 'owner_only');
+    assert.equal((await grant(owner.call, { role: 'admin', permissions: [] })).data.field, 'permissions');
+
+    const users = (await owner.call('/api/admin/users')).data.items;
+    assert.equal(users[0].role, 'owner');
+    assert.deepEqual(users.find((user) => user.id === helperId).permissions, ['reports', 'reviews']);
+
+    assert.equal((await grant(owner.call, { role: 'user' })).status, 200);
+    assert.equal((await helper('/api/admin/overview')).status, 403);
+    const log = (await owner.call('/api/admin/log')).data.items.map((item) => item.action);
+    assert.ok(log.includes('grant') && log.includes('revoke'));
+  });
+
+  it('protects the owner from being changed or blocked', async () => {
+    const owner = await newOwner();
+    const fullAdmin = await newAdmin();
+    assert.equal((await owner.call(`/api/admin/users/${owner.id}/role`, { method: 'POST', json: { role: 'user' } })).data.error, 'cannot_change_owner');
+    assert.equal((await fullAdmin(`/api/admin/users/${owner.id}/block`, { method: 'POST', json: { blocked: true } })).data.error, 'cannot_block_admin');
+  });
+});

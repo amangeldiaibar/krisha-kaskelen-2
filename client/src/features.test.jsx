@@ -195,6 +195,42 @@ describe('admin panel', () => {
     expect(screen.getByTestId('where').textContent).toContain('data=no_point');
   });
 
+  it('lets the owner give a person admin rights with chosen permissions', async () => {
+    const overview = { pendingListings: 0, rejectedListings: 0, liveListings: 3, pendingReviews: 0, rejectedReviews: 0, openReports: 0, users: 2, blockedUsers: 0, duplicatePairs: 0, admins: 1, myActionsToday: 4, sources: {} };
+    const calls = mockApi({
+      '/auth/me': { user: { id: 1, name: 'Zangar', role: 'owner', permissions: null } },
+      '/admin/overview': overview,
+      '/admin/users/2/role': { role: 'admin', permissions: ['listings', 'reports'] },
+      '/admin/users': { items: [
+        { id: 1, name: 'Zangar', email: 'z@x.kz', phone: '+77001112233', role: 'owner', permissions: ['listings'], blocked: false, createdAt: '2026-11-20T10:00:00Z', listingCount: 0, reportCount: 0, isMe: true },
+        { id: 2, name: 'Aruzhan', email: 'a@x.kz', phone: '+77001112244', role: 'user', permissions: [], blocked: false, createdAt: '2026-11-20T10:00:00Z', listingCount: 1, reportCount: 0, isMe: false },
+      ] },
+    });
+    show('/ru/admin?tab=users', <Admin />, '/:lang/admin');
+    expect(await screen.findByText('Zangar', { selector: '.hero-name' })).toBeTruthy();
+    expect(await screen.findByText('ваших действий сегодня')).toBeTruthy();
+    // Only one access button: the owner's own row has none.
+    fireEvent.click(await screen.findByRole('button', { name: 'Права доступа' }));
+    fireEvent.click(screen.getByRole('switch'));
+    expect(screen.getByText('Прав: 2 из 6')).toBeTruthy();
+    fireEvent.click(screen.getByRole('checkbox', { name: /Отзывы/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Жалобы/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить изменения' }));
+    await waitFor(() => expect(calls.find((call) => call.path === '/admin/users/2/role')?.body).toEqual({ role: 'admin', permissions: ['listings', 'reports'] }));
+  });
+
+  it('shows an admin only the sections they were given', async () => {
+    mockApi({
+      '/auth/me': { user: { id: 3, name: 'Helper', role: 'admin', permissions: ['reviews'] } },
+      '/admin/overview': { pendingListings: 1, rejectedListings: 0, liveListings: 3, pendingReviews: 2, rejectedReviews: 0, openReports: 0, users: 2, blockedUsers: 0, duplicatePairs: 0, admins: 2, myActionsToday: 0, sources: {} },
+    });
+    show('/ru/admin', <Admin />, '/:lang/admin');
+    expect(await screen.findByRole('button', { name: /Отзывы/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Объявления/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Пользователи/ })).toBeNull();
+    expect(screen.getByText('Прав: 1 из 6')).toBeTruthy();
+  });
+
   it('shows counts and merges a duplicate pair', async () => {
     const summary = (id, source) => ({ id, title: `Объявление ${id}`, deal: 'rent', price: 120000, rooms: 1, area: 38, floor: null, address: 'Абылай хана 12', description: 'текст', status: 'approved', source, cover: null, owner: null, reportCount: 0, duplicateOf: null, createdAt: '2026-11-20T10:00:00Z' });
     const calls = mockApi({

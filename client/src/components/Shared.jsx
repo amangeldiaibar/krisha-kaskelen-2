@@ -3,6 +3,7 @@ import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useParams } 
 import { api } from '../api.js';
 import { LANGS, LANG_LABELS, translate } from '../i18n.js';
 import { useAuth, useCompare, useFetch, useI18n, usePolling, useToast } from '../context.jsx';
+import { can, isAdmin } from '../../../shared/permissions.js';
 import { COUNTRIES, countryByIso, countryOf, flagOf, formatNational, nationalOf, nationalPattern, phoneExample } from '../phone.js';
 
 export function Layout() {
@@ -95,7 +96,7 @@ function ProfileMenu() {
       </button>
       {open && (
         <div className="profile-menu pop" role="menu" onClick={() => setOpen(false)}>
-          {user.role === 'admin' && <NavLink role="menuitem" className="menu-admin" to={path('/admin')}>{t('admin')}</NavLink>}
+          {isAdmin(user) && <NavLink role="menuitem" className="menu-admin" to={path('/admin')}>{t('admin')}</NavLink>}
           <NavLink role="menuitem" to={path('/settings')}>{t('settings')}</NavLink>
           <NavLink role="menuitem" to={path('/favorites')}>{t('favorites')}</NavLink>
           <NavLink role="menuitem" to={path('/mine')}>{t('myListings')}</NavLink>
@@ -499,7 +500,7 @@ export function ListingCard({ item, index = 0, onFavoriteChange, onHover, onRemo
         <div className="card-foot">
           <SourceBadge source={item.source} />
           <DealCardButton item={item} />
-          {user?.role === 'admin' && <AdminDeleteButton id={item.id} onDone={onRemoved} className="btn danger small" />}
+          {can(user, 'listings') && <AdminDeleteButton id={item.id} onDone={onRemoved} className="btn danger small" />}
         </div>
       </div>
     </article>

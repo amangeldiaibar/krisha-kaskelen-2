@@ -677,12 +677,17 @@ legend { font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
 .adminpage { padding: 24px 20px 48px; }
 .adminpage h1 { margin-bottom: 12px; }
 .admin-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
-.admin-tabs button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 12px; font: inherit; font-weight: 700; color: var(--muted); cursor: pointer; }
-.admin-tabs button.on { color: var(--brand); border-bottom-color: var(--brand); }
+.admin-tabs button { background: none; border: 0; border-bottom: 3px solid transparent; margin-bottom: -1px; padding: 10px 12px; font: inherit; font-weight: 700; color: var(--muted); cursor: pointer; }
+.admin-tabs button { position: relative; transition: color 0.2s; }
+.admin-tabs button:hover { color: var(--ink); }
+.admin-tabs button.on { color: var(--brand); }
+.admin-tabs button.on::before { content: ''; position: absolute; left: 8px; right: 8px; bottom: -3px; height: 3px; border-radius: 3px 3px 0 0; background: linear-gradient(90deg, var(--brand), var(--accent)); animation: tab-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2); }
 .admin-tabs button::after { display: none; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
-.tile { display: grid; gap: 2px; text-align: left; padding: 16px; border: 1px solid var(--line); border-radius: var(--r); background: var(--card); color: var(--ink); font: inherit; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
-.tile:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(10, 40, 55, 0.1); }
+.tile { position: relative; overflow: hidden; display: grid; gap: 2px; text-align: left; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--ink); font: inherit; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s; animation: rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: calc(var(--i, 0) * 45ms); }
+.tile::after { content: ''; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.7) 50%, transparent 70%); transform: translateX(-120%); transition: transform 0.6s; pointer-events: none; }
+.tile:hover { transform: translateY(-3px); border-color: #b9ccd6; box-shadow: 0 12px 28px rgba(10, 40, 55, 0.12); }
+.tile:hover::after { transform: translateX(120%); }
 .tile.urgent { border-color: var(--accent); background: #fffbea; }
 .tile-value { font-size: 1.8rem; font-weight: 800; line-height: 1.1; }
 .tile-label { color: var(--muted); font-size: 0.88rem; }
@@ -740,4 +745,79 @@ legend { font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
   .user-row { flex-direction: column; align-items: flex-start; }
   .compare-bar { bottom: 10px; gap: 8px; }
   .comparepage, .adminpage { padding-inline: 16px; }
+}
+
+/* Admin hero */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.admin-hero { position: relative; overflow: hidden; isolation: isolate; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; margin-bottom: 20px; padding: 28px 30px; border-radius: 20px; color: #fff; background: linear-gradient(125deg, #0b3f55 0%, #0f5c7a 45%, #13769b 100%); background-size: 160% 160%; box-shadow: 0 18px 40px rgba(10, 50, 70, 0.25); animation: hero-in 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both, hero-shift 14s ease-in-out infinite alternate; }
+.hero-orbs { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.hero-orbs span { position: absolute; border-radius: 50%; filter: blur(40px); opacity: 0.55; animation: orb 12s ease-in-out infinite alternate; }
+.hero-orbs span:nth-child(1) { width: 260px; height: 260px; right: -60px; top: -90px; background: var(--accent); }
+.hero-orbs span:nth-child(2) { width: 200px; height: 200px; left: 30%; bottom: -120px; background: #3cc6e6; animation-duration: 16s; animation-delay: -4s; }
+.hero-orbs span:nth-child(3) { width: 140px; height: 140px; left: -40px; top: -50px; background: #8fe3c6; opacity: 0.35; animation-duration: 10s; animation-delay: -7s; }
+.admin-hero-text > * { animation: rise 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.admin-hero-text > :nth-child(2) { animation-delay: 80ms; }
+.admin-hero-text > :nth-child(3) { animation-delay: 160ms; }
+.hero-eyebrow { font-size: 0.85rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.75); }
+.hero-eyebrow::first-letter { text-transform: uppercase; }
+.hero-name { margin: 2px 0 10px; font-size: clamp(1.7rem, 3.4vw, 2.5rem); font-weight: 800; line-height: 1.1; letter-spacing: -0.01em; }
+.hero-meta { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; color: rgba(255, 255, 255, 0.82); font-size: 0.9rem; }
+.hero-meta > span:last-child::first-letter { text-transform: uppercase; }
+.admin-hero .role-pill { background: rgba(255, 255, 255, 0.16); color: #fff; border: 1px solid rgba(255, 255, 255, 0.28); }
+.admin-hero .role-pill.owner { background: var(--accent); color: #2b2100; border-color: transparent; box-shadow: 0 0 0 0 rgba(242, 183, 5, 0.6); animation: crown 2.6s ease-in-out infinite; }
+.hero-stats { display: grid; grid-template-columns: repeat(2, minmax(130px, 1fr)); gap: 10px; }
+.hero-stat { display: grid; gap: 2px; padding: 14px 16px; text-align: left; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 14px; background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(8px); color: #fff; font: inherit; cursor: pointer; transition: transform 0.2s, background 0.2s; animation: rise 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: calc(200ms + var(--i, 0) * 70ms); }
+.hero-stat:hover:not(:disabled) { transform: translateY(-3px); background: rgba(255, 255, 255, 0.18); }
+.hero-stat:disabled { cursor: default; }
+.hero-stat-value { font-size: 1.7rem; font-weight: 800; line-height: 1.1; }
+.hero-stat-label { font-size: 0.8rem; color: rgba(255, 255, 255, 0.78); }
+.admin-view { animation: rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+/* Users and access rights */
+.role-pill { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 2px 10px; border-radius: 999px; background: #e4eef3; color: var(--brand); font-size: 0.78rem; font-weight: 800; vertical-align: middle; }
+.role-pill.owner { background: linear-gradient(135deg, #ffd84d, var(--accent)); color: #2b2100; }
+.user-row { padding-inline: 10px; border-radius: 10px; animation: rise 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: calc(var(--i, 0) * 35ms); transition: background 0.2s; }
+.user-row:hover { background: #f7fafb; }
+.user-row.role-owner { background: linear-gradient(90deg, #fff8dc, transparent 70%); }
+.user-main { display: flex; gap: 12px; align-items: flex-start; min-width: 0; }
+.user-avatar { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, var(--brand), #13769b); color: #fff; font-weight: 800; }
+.role-owner .user-avatar { background: linear-gradient(135deg, #ffd84d, var(--accent)); color: #2b2100; }
+.perm-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.perm-chip { padding: 1px 8px; border-radius: 999px; background: #eef5f8; color: var(--brand); font-size: 0.75rem; font-weight: 700; }
+.access-btn { background: linear-gradient(135deg, var(--brand), #13769b); color: #fff; border-color: transparent; }
+.access-dialog { width: min(560px, calc(100vw - 32px)); }
+.switch-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 16px 0 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+.switch-row > span { display: grid; }
+.switch { appearance: none; flex: none; position: relative; width: 46px; height: 26px; margin: 0; border-radius: 999px; background: #c9d6dd; cursor: pointer; transition: background 0.25s; }
+.switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); transition: transform 0.25s cubic-bezier(0.3, 1.4, 0.5, 1); }
+.switch:checked { background: var(--brand); }
+.switch:checked::after { transform: translateX(20px); }
+.perm-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 0; border: 0; transition: opacity 0.25s, filter 0.25s; }
+.perm-grid.off { opacity: 0.45; filter: grayscale(1); }
+.perm-card { position: relative; display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1.5px solid var(--line); border-radius: 12px; cursor: pointer; transition: border-color 0.2s, background 0.2s, transform 0.2s; animation: rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: calc(var(--i, 0) * 40ms); }
+.perm-card:hover { transform: translateY(-2px); }
+.perm-card.on { border-color: var(--brand); background: #eef6f9; }
+.perm-card input { position: absolute; opacity: 0; pointer-events: none; }
+.perm-card:has(input:focus-visible) { outline: 3px solid var(--accent); outline-offset: 2px; }
+.perm-card > span:last-child { display: grid; gap: 2px; }
+.perm-card .meta { font-size: 0.8rem; }
+.perm-icon { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: #e4eef3; font-size: 1rem; transition: transform 0.25s, background 0.2s; }
+.perm-card.on .perm-icon { background: var(--brand); color: #fff; transform: rotate(-8deg) scale(1.08); }
+.select-all { margin-top: 8px; }
+
+@keyframes hero-in { from { opacity: 0; transform: translateY(12px) scale(0.985); } }
+@keyframes hero-shift { to { background-position: 100% 100%; } }
+@keyframes orb { to { transform: translate(-30px, 24px) scale(1.15); } }
+@keyframes crown { 50% { box-shadow: 0 0 0 6px rgba(242, 183, 5, 0); } 0%, 100% { box-shadow: 0 0 0 0 rgba(242, 183, 5, 0.55); } }
+@keyframes tab-in { from { transform: scaleX(0.2); opacity: 0; } }
+
+@media (max-width: 800px) {
+  .admin-hero { grid-template-columns: 1fr; padding: 22px 18px; }
+  .hero-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .perm-grid { grid-template-columns: 1fr; }
+  .user-row .actions { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .admin-hero, .hero-orbs span, .admin-hero-text > *, .hero-stat, .admin-view, .tile, .user-row, .perm-card, .admin-hero .role-pill.owner, .admin-tabs button.on::before { animation: none; }
+  .tile::after { display: none; }
 }

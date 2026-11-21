@@ -87,6 +87,8 @@ npm run admin -- you@example.com
 
 A phone number works too. Add `--remove` to take the rights away. The admin panel then appears in the profile menu. The database must be running.
 
+Add `--owner` to make the owner. The owner opens **Users** in the admin panel and presses **Access rights** on anyone to make them an admin and choose what they may do: ads, duplicates, reports, reviews, users, the log. An admin sees only the sections they were given, and only the owner can change rights. Admins made from the command line get every permission.
+
 ## Ads from krisha.kz
 
 The krisha.kz parser lives in [KrishaParser/](KrishaParser/), taken from [house-pricer](https://github.com/Damenzzzz/house-pricer/tree/main/KrishaParser). Its own README explains setup. Collect ads and load the newest export into the site:
