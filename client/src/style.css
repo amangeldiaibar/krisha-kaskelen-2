@@ -701,6 +701,10 @@ legend { font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
 .admin-main { display: grid; gap: 4px; min-width: 0; }
 .admin-title { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .admin-tags { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.admin-data { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.85rem; }
+.admin-data span { padding: 2px 8px; border-radius: 999px; }
+.data-ok { background: #e3f1ea; color: #1d6b45; }
+.data-missing { background: #fdecea; color: #a1281c; font-weight: 600; }
 .admin-main details summary { cursor: pointer; color: var(--brand); font-size: 0.88rem; font-weight: 600; }
 .admin-main details .prose { margin-top: 6px; font-size: 0.9rem; }
 .reject-form { display: grid; gap: 6px; width: 100%; }

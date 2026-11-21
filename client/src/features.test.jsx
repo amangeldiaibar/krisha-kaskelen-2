@@ -167,6 +167,25 @@ describe('admin panel', () => {
     expect(screen.queryByRole('button', { name: 'Удалить' })).toBeNull();
   });
 
+  it('filters ads by missing details and shows what each ad lacks', async () => {
+    const row = (id, over) => ({ id, title: `Объявление ${id}`, deal: 'rent', price: 120000, rooms: 1, area: 38, floor: 2, address: 'Абылай хана 12', description: 'текст', status: 'approved', source: { type: 'import', name: 'krisha.kz', url: 'https://krisha.kz/a/show/1' }, cover: null, owner: null, reportCount: 0, duplicateOf: null, createdAt: '2026-11-20T10:00:00Z', photoCount: 4, distanceKm: 1.2, missing: [], ...over });
+    const calls = mockApi({
+      '/auth/me': { user: { id: 1, name: 'Admin', role: 'admin' } },
+      '/admin/listings': (path) => ({
+        items: path.includes('data=no_point') ? [row(8, { distanceKm: null, photoCount: 0, missing: ['point', 'photos'] })] : [row(7)],
+        total: 1, page: 1, pageSize: 50,
+      }),
+    });
+    show('/ru/admin?tab=listings', <Admin />, '/:lang/admin');
+    expect(await screen.findByText('До SDU: 1.2 км')).toBeTruthy();
+    expect(screen.getByText('Фото: 4')).toBeTruthy();
+    expect(screen.getByText('Все данные на месте')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Все данные'), { target: { value: 'no_point' } });
+    expect(await screen.findByText('Не хватает: расстояния до SDU, фото')).toBeTruthy();
+    expect(calls.some((call) => call.path === '/admin/listings?data=no_point')).toBe(true);
+    expect(screen.getByTestId('where').textContent).toContain('data=no_point');
+  });
+
   it('shows counts and merges a duplicate pair', async () => {
     const summary = (id, source) => ({ id, title: `Объявление ${id}`, deal: 'rent', price: 120000, rooms: 1, area: 38, floor: null, address: 'Абылай хана 12', description: 'текст', status: 'approved', source, cover: null, owner: null, reportCount: 0, duplicateOf: null, createdAt: '2026-11-20T10:00:00Z' });
     const calls = mockApi({

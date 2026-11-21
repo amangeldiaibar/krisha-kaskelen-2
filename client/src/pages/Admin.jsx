@@ -122,6 +122,21 @@ function Overview({ data, onOpen }) {
   );
 }
 
+/** Distance, photo count and the details the ad lacks. */
+function DataLine({ item }) {
+  const { t } = useI18n();
+  if (!item.missing) return null;
+  return (
+    <div className="admin-data">
+      {item.distanceKm !== null && <span className="data-ok">{t('toSduKm', { n: item.distanceKm })}</span>}
+      {item.photoCount > 0 && <span className="data-ok">{t('photosN', { n: item.photoCount })}</span>}
+      {item.missing.length === 0
+        ? <span className="data-ok">{t('completeData')}</span>
+        : <span className="data-missing">{t('missingLabel')} {item.missing.map((name) => t(`missing_${name}`)).join(', ')}</span>}
+    </div>
+  );
+}
+
 function ListingsTab({ params, setFilter }) {
   const { t, path } = useI18n();
   const query = new URLSearchParams(Object.entries(params).filter(([key, value]) => value && key !== 'tab')).toString();
@@ -140,6 +155,16 @@ function ListingsTab({ params, setFilter }) {
         <select aria-label={t('sourceAll')} value={params.source ?? ''} onChange={(event) => setFilter({ source: event.target.value, page: '' })}>
           <option value="">{t('sourceAll')}</option>
           {['app', 'telegram', 'krisha', 'test'].map((source) => <option key={source} value={source}>{t(`source_${source}`)}</option>)}
+        </select>
+        <select aria-label={t('dataAll')} value={params.data ?? ''} onChange={(event) => setFilter({ data: event.target.value, page: '' })}>
+          <option value="">{t('dataAll')}</option>
+          <option value="incomplete">{t('data_incomplete')}</option>
+          <optgroup label={t('dataGroupHas')}>
+            {['point', 'photos'].map((name) => <option key={name} value={name}>{t(`data_${name}`)}</option>)}
+          </optgroup>
+          <optgroup label={t('dataGroupLacks')}>
+            {['no_point', 'no_photos', 'no_price', 'no_area', 'no_rooms', 'no_floor', 'short_description'].map((name) => <option key={name} value={name}>{t(`data_${name}`)}</option>)}
+          </optgroup>
         </select>
         <label className="check"><input type="checkbox" checked={params.reported === '1'} onChange={(event) => setFilter({ reported: event.target.checked ? '1' : '', page: '' })} />{t('onlyReported')}</label>
         <input type="search" value={q} placeholder={t('adminSearchPh')} onChange={(event) => setQ(event.target.value)} />
@@ -167,6 +192,7 @@ function ListingsTab({ params, setFilter }) {
                 ? <span className="meta">{item.owner.name} · {item.owner.phone} · {item.owner.email}{item.owner.blocked ? ` · ${t('blockedLabel')}` : ''}</span>
                 : <span className="meta">{t('importedAd')}</span>}
             </div>
+            <DataLine item={item} />
             <Decision item={item} />
             <details>
               <summary>{t('description')}</summary>

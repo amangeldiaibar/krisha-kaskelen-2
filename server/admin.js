@@ -1,4 +1,6 @@
 import { requireAdmin } from './auth.js';
+import { SDU } from './config.js';
+import { distanceKm } from './geo.js';
 import { HttpError, fieldError, idParam, toInt } from './http.js';
 import { findDuplicatePairs, pairKey } from './services/duplicates.js';
 
@@ -11,6 +13,34 @@ const SOURCES = {
   krisha: `listings.source_type = 'import' AND listings.source_name = 'krisha.kz'`,
   test: `listings.source_type = 'test'`,
 };
+const HAS_PHOTOS = 'EXISTS (SELECT 1 FROM photos WHERE photos.listing_id = listings.id)';
+/** Descriptions shorter than this say almost nothing about the flat. */
+const SHORT_DESCRIPTION = 30;
+/** Which details an ad has or lacks, for the admin "data" filter. */
+const DATA_FILTERS = {
+  point: 'listings.lat IS NOT NULL',
+  no_point: 'listings.lat IS NULL',
+  photos: HAS_PHOTOS,
+  no_photos: `NOT ${HAS_PHOTOS}`,
+  no_price: 'listings.price IS NULL',
+  no_area: 'listings.area IS NULL',
+  no_rooms: 'listings.rooms IS NULL',
+  no_floor: 'listings.floor IS NULL',
+  short_description: `length(coalesce(listings.description, '')) < ${SHORT_DESCRIPTION}`,
+  incomplete: `(listings.lat IS NULL OR NOT ${HAS_PHOTOS} OR listings.price IS NULL OR listings.area IS NULL OR listings.rooms IS NULL)`,
+};
+
+/** Details the ad lacks, so an admin sees at a glance what is wrong with it. */
+const missingOf = (row) =>
+  [
+    row.lat === null && 'point',
+    Number(row.photo_count) === 0 && 'photos',
+    row.price === null && 'price',
+    row.area === null && 'area',
+    row.rooms === null && 'rooms',
+    row.floor === null && 'floor',
+    String(row.description ?? '').length < SHORT_DESCRIPTION && 'description',
+  ].filter(Boolean);
 
 const reasonOf = (body, decision) => {
   const reason = String(body?.reason ?? '').trim();
@@ -43,6 +73,9 @@ const listingSummary = (row) => ({
   cover: row.cover ? `/uploads/${row.cover}` : null,
   owner: row.owner_id ? { id: row.owner_id, name: row.owner_name, phone: row.owner_phone, email: row.owner_email, blocked: Boolean(row.owner_blocked) } : null,
   reportCount: row.report_count ?? 0,
+  photoCount: Number(row.photo_count ?? 0),
+  distanceKm: row.lat === null || row.lat === undefined ? null : Math.round(distanceKm(SDU, { lat: row.lat, lon: row.lon }) * 10) / 10,
+  missing: missingOf(row),
   duplicateOf: row.duplicate_of,
   createdAt: row.created_at,
 });
@@ -51,6 +84,7 @@ const LISTING_SELECT = `SELECT listings.*,
     owner.id AS owner_id, owner.name AS owner_name, owner.phone AS owner_phone, owner.email AS owner_email, owner.blocked_at IS NOT NULL AS owner_blocked,
     moderator.name AS moderator_name,
     (SELECT filename FROM photos WHERE photos.listing_id = listings.id ORDER BY position LIMIT 1) AS cover,
+    (SELECT COUNT(*) FROM photos WHERE photos.listing_id = listings.id) AS photo_count,
     (SELECT COUNT(*) FROM reports WHERE reports.listing_id = listings.id AND reports.status = 'open') AS report_count
   FROM listings
   LEFT JOIN users owner ON owner.id = listings.user_id
@@ -112,9 +146,10 @@ export function registerAdminRoutes(app, { db, removeFiles, onContentChanged }) 
     const where = [];
     const params = [];
     const param = (value) => `$${params.push(value)}`;
-    const { status, source, q, reported } = req.query;
+    const { status, source, q, reported, data } = req.query;
     if (LISTING_STATUSES.has(status)) where.push(`listings.status = ${param(status)}`);
     if (SOURCES[source]) where.push(SOURCES[source]);
+    if (Object.hasOwn(DATA_FILTERS, data)) where.push(DATA_FILTERS[data]);
     if (reported === '1') where.push(`EXISTS (SELECT 1 FROM reports WHERE reports.listing_id = listings.id AND reports.status = 'open')`);
     const text = String(q ?? '').trim().slice(0, 100);
     if (/^\d+$/.test(text)) where.push(`listings.id = ${param(Number(text))}`);

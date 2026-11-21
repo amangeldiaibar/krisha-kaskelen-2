@@ -966,6 +966,32 @@ describe('admin panel', () => {
     assert.equal((await admin(`/api/admin/listings/${id}`, { method: 'DELETE' })).status, 204);
     assert.equal(await db.get('SELECT id FROM listings WHERE id = $1', [id]), undefined);
   });
+
+  it('filters ads by the details they have or lack and lists what is missing', async () => {
+    const full = await addListing({ floor: 3 });
+    await addListingPhotos({ db, listingId: full, buffers: [PNG], uploadsDir: tmp });
+    const bare = await addListing({ lat: null, lon: null, price: null, area: null, description: 'коротко' });
+    const admin = await newAdmin();
+    const ids = async (data) => (await admin(`/api/admin/listings?data=${data}`)).data.items.map((item) => item.id).sort();
+
+    assert.deepEqual(await ids('point'), [full]);
+    assert.deepEqual(await ids('no_point'), [bare]);
+    assert.deepEqual(await ids('photos'), [full]);
+    assert.deepEqual(await ids('no_photos'), [bare]);
+    assert.deepEqual(await ids('no_price'), [bare]);
+    assert.deepEqual(await ids('short_description'), [bare]);
+    assert.deepEqual(await ids('incomplete'), [bare]);
+    assert.equal((await ids('unknown')).length, 2);
+
+    const items = (await admin('/api/admin/listings')).data.items;
+    const fullItem = items.find((item) => item.id === full);
+    const bareItem = items.find((item) => item.id === bare);
+    assert.deepEqual(fullItem.missing, []);
+    assert.equal(fullItem.photoCount, 1);
+    assert.equal(typeof fullItem.distanceKm, 'number');
+    assert.deepEqual(bareItem.missing, ['point', 'photos', 'price', 'area', 'floor', 'description']);
+    assert.equal(bareItem.distanceKm, null);
+  });
 });
 
 describe('reports', () => {
