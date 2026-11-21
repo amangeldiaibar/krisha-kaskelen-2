@@ -43,3 +43,5 @@ export const config = {
 };
 
 export const SDU = { name: 'SDU University', lat: 43.207176, lon: 76.66967 };
+/** The site shows only flats this close to SDU. */
+export const MAX_AD_DISTANCE_KM = 3;

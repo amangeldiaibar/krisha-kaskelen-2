@@ -1,3 +1,6 @@
+import { MAX_AD_DISTANCE_KM, SDU } from '../config.js';
+import { distanceKm } from '../geo.js';
+
 const BATCH_SIZE = 5;
 /** OpenStreetMap allows a request a second, so 20 lookups fit in one 30-second tick. */
 const GEOCODE_BATCH_SIZE = 20;
@@ -8,6 +11,11 @@ const RULE_REASONS = {
     en: 'Add at least one photo of the flat.',
     kk: 'Пәтердің кемінде бір фотосын қосыңыз.',
   },
+  too_far: {
+    ru: `Квартира дальше ${MAX_AD_DISTANCE_KM} км от SDU. Сайт показывает жильё не дальше ${MAX_AD_DISTANCE_KM} км от университета.`,
+    en: `The flat is more than ${MAX_AD_DISTANCE_KM} km from SDU. The site shows homes within ${MAX_AD_DISTANCE_KM} km of the university.`,
+    kk: `Пәтер SDU-дан ${MAX_AD_DISTANCE_KM} км-ден алыс. Сайт университеттен ${MAX_AD_DISTANCE_KM} км-ге дейінгі тұрғын үйді ғана көрсетеді.`,
+  },
   no_point: {
     ru: 'Адрес не найден на карте, поэтому расстояние до SDU неизвестно. Уточните адрес.',
     en: 'The address was not found on the map, so the distance to SDU is unknown. Make the address more precise.',
@@ -15,9 +23,10 @@ const RULE_REASONS = {
   },
 };
 
-/** Why an ad cannot be published whatever the AI says, or null. Search shows only ads with photos and a distance to SDU. */
+/** Why an ad cannot be published whatever the AI says, or null. Search shows only ads with photos, near SDU. */
 export function ruleReason(listing) {
-  const rule = Number(listing.photo_count) === 0 ? 'no_photos' : listing.lat === null ? 'no_point' : null;
+  const far = listing.lat !== null && distanceKm(SDU, { lat: listing.lat, lon: listing.lon }) > MAX_AD_DISTANCE_KM;
+  const rule = Number(listing.photo_count) === 0 ? 'no_photos' : listing.lat === null ? 'no_point' : far ? 'too_far' : null;
   return rule ? RULE_REASONS[rule][listing.moderation_lang] ?? RULE_REASONS[rule].ru : null;
 }
 

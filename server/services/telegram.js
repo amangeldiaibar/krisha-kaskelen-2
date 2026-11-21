@@ -1,5 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
+import { MAX_AD_DISTANCE_KM, SDU } from '../config.js';
+import { distanceKm } from '../geo.js';
 import { PLACES } from './area.js';
 
 export const SEARCH_TERMS = ['Каскелен аренда', 'Каскелен квартира', 'Каскелен жилье', 'SDU жилье', 'Қаскелең пәтер'];
@@ -172,7 +174,8 @@ export async function postsToListings({ posts, extract, geocode, slots, seenText
       const ad = adFingerprint(listing);
       if (seenAds.has(ad)) continue;
       const point = await geocode(listing.address, { approximate: true });
-      if (!point) continue;
+      // Flats far from SDU are not shown, so they are not saved either.
+      if (!point || distanceKm(SDU, point) > MAX_AD_DISTANCE_KM) continue;
       seenAds.add(ad);
       prepared.push({ ...listing, ...point, post });
     } catch (error) {

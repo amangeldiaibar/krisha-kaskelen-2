@@ -569,6 +569,19 @@ describe('moderation worker', () => {
     assert.equal(asked.includes(noPhoto) || asked.includes(notFound) || asked.includes(waiting), false);
   });
 
+  it('refuses flats more than 3 km from SDU', async () => {
+    const far = await pendingListing();
+    const near = await pendingListing();
+    await db.run('UPDATE listings SET lat = 43.2379, lon = 76.7628 WHERE id = $1', [far]); // Иргели, about 9 km
+    await db.run('UPDATE listings SET lat = 43.2016, lon = 76.6400 WHERE id = $1', [near]); // about 2.5 km
+    const moderator = { moderateListing: async () => ({ decision: 'approve', reason: 'ok' }), moderateReview: async () => ({}) };
+    for (let i = 0; i < 5; i += 1) await createWorker({ db, dgis, log: silent, moderator }).tick();
+    const farRow = await db.get('SELECT status, moderation_reason FROM listings WHERE id = $1', [far]);
+    assert.equal(farRow.status, 'rejected');
+    assert.match(farRow.moderation_reason, /3 км/);
+    assert.equal((await db.get('SELECT status FROM listings WHERE id = $1', [near])).status, 'approved');
+  });
+
   it('pauses 2GIS and the AI after a failure and does not look up an unknown address on every tick', async () => {
     await pendingListing();
     await db.run(`UPDATE listings SET lat = NULL, lon = NULL, geocode_tried_at = NULL`);
@@ -744,6 +757,11 @@ describe('telegram import', () => {
     const [again] = await saveImports({ db, prepared: [{ ...item, price: 1200 }], uploadsDir: tmp });
     const rows = await db.all(`SELECT id, price FROM listings WHERE source_url = 'https://t.me/x/1'`);
     assert.deepEqual(rows.map((row) => [row.id, row.price]), [[again.listingId, 1200]]);
+  });
+
+  it('does not save Telegram ads far from SDU', async () => {
+    const { prepared } = await postsToListings({ posts: [post()], extract: async () => fields, geocode: async () => ({ lat: 43.2379, lon: 76.7628 }), slots: 2, log: silent });
+    assert.equal(prepared.length, 0);
   });
 
   it('skips ads whose address 2GIS cannot place', async () => {
