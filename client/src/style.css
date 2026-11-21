@@ -694,8 +694,9 @@ legend { font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
 .admin-filters select, .admin-filters input[type='search'] { width: auto; flex: 1 1 160px; }
 .admin-filters .check { display: flex; gap: 6px; align-items: center; color: var(--ink); white-space: nowrap; }
 .admin-filters .check input { width: auto; }
-.admin-row { display: grid; grid-template-columns: 140px 1fr; gap: 16px; }
-.admin-cover { position: relative; aspect-ratio: 4 / 3; border-radius: 8px; overflow: hidden; background: var(--bg); }
+.admin-row { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 20px; align-items: start; }
+/* min-height from .ph would stretch the 4:3 box wider than its column, over the text. */
+.admin-cover { position: relative; width: 100%; min-height: 0; aspect-ratio: 4 / 3; border-radius: 8px; overflow: hidden; background: var(--bg); }
 .admin-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .admin-main { display: grid; gap: 4px; min-width: 0; }
 .admin-title { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -729,7 +730,7 @@ legend { font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
 .log { list-style: none; padding: 0; display: grid; gap: 8px; font-size: 0.92rem; }
 @media (max-width: 800px) {
   .smart-row input { font-size: 0.95rem; }
-  .admin-row { grid-template-columns: 1fr; }
+  .admin-row { grid-template-columns: 1fr; gap: 12px; }
   .admin-cover { max-width: 260px; }
   .dup-pair { grid-template-columns: 1fr; }
   .user-row { flex-direction: column; align-items: flex-start; }
