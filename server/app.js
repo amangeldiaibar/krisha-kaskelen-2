@@ -11,6 +11,10 @@ import { COOKIE, USER_COLUMNS, createSession, destroySession, hashPassword, load
 import { normalizePhone } from '../shared/phones.js';
 import { sniffImage } from './images.js';
 import { DgisError } from './services/dgis.js';
+import { HttpError, fieldError, idParam, toInt } from './http.js';
+import { registerAdminRoutes } from './admin.js';
+import { REPOST_THRESHOLD, compareListings } from './services/duplicates.js';
+import { FEATURES, FEATURE_NAMES, SORTS, createSearchParser } from './services/search.js';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DISTRICTS = new Set(['near_sdu', 'center', 'new']);
@@ -18,31 +22,33 @@ const LANGS = new Set(['ru', 'en', 'kk']);
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const MAP_LIMITS = { minZoom: 8, maxZoom: 18, maxDegreesFromSdu: 1 };
 const STREAM_PING_MS = 25_000;
+const MAX_COMPARE = 4;
+const REPORT_REASONS = new Set(['fraud', 'wrong_info', 'unavailable', 'duplicate', 'offensive', 'other']);
+const SEARCH_TEXT = "lower(listings.title || ' ' || listings.description)";
+const likeAny = (words) => words.map((word) => `%${word}%`);
 
-class HttpError extends Error {
-  constructor(status, code) {
-    super(code);
-    this.status = status;
-    this.code = code;
-  }
+/** Which amenities an ad mentions: true, false when it says the opposite, or null when it says nothing. */
+function amenitiesOf(row) {
+  const text = `${row.title} ${row.description}`.toLowerCase().replace(/ё/g, 'е');
+  return Object.fromEntries(
+    FEATURE_NAMES.map((name) => {
+      const { words, not } = FEATURES[name];
+      if (not.some((word) => text.includes(word))) return [name, false];
+      return [name, words.some((word) => text.includes(word)) ? true : null];
+    }),
+  );
 }
 
-const toInt = (value, min, max) => {
-  if (value === undefined || value === null || value === '') return null;
-  const number = Number(value);
-  return Number.isInteger(number) && number >= min && number <= max ? number : undefined;
-};
-
-/** An id from the URL. Anything that cannot be a row id is simply not found. */
-const idParam = (value) => {
-  const id = toInt(value, 1, 2_147_483_647);
-  if (!id) throw new HttpError(404, 'not_found');
-  return id;
+const SORTERS = {
+  distance: (a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity),
+  price_asc: (a, b) => (a.price ?? Infinity) - (b.price ?? Infinity),
+  price_desc: (a, b) => (b.price ?? -Infinity) - (a.price ?? -Infinity),
+  new: (a, b) => b.id - a.id,
 };
 
 function validateListing(body) {
   const fail = (field) => {
-    throw Object.assign(new HttpError(422, 'invalid_field'), { field });
+    throw fieldError(field);
   };
   const text = (field, min, max) => {
     const value = String(body[field] ?? '').trim();
@@ -84,7 +90,7 @@ function validateListing(body) {
 
 const langOf = (req) => (LANGS.has(req.body?.lang) ? req.body.lang : 'ru');
 
-export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = false, authRateLimit = 30, onContentChanged = () => {} }) {
+export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = createSearchParser(), secureCookies = false, authRateLimit = 30, onContentChanged = () => {} }) {
   fs.mkdirSync(uploadsDir, { recursive: true });
   const app = express();
   app.disable('x-powered-by');
@@ -96,6 +102,7 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
     limits: { fileSize: MAX_PHOTO_BYTES, files: 10 },
   });
   const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: authRateLimit, standardHeaders: true, legacyHeaders: false, message: { error: 'too_many_requests' } });
+  const searchLimiter = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false, message: { error: 'too_many_requests' } });
   const mapLimiter = rateLimit({ windowMs: 60 * 1000, limit: 1200, standardHeaders: true, legacyHeaders: false, message: { error: 'too_many_requests' } });
 
   const setSession = async (res, userId) => {
@@ -138,6 +145,7 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
       canRequest: Boolean(row.user_id && row.user_id !== userId && row.deal_status === 'available' && row.status === 'approved'),
       myRequest: myRequest ?? null,
       isFavorite: Boolean(favorite),
+      duplicateOf: row.duplicate_of ?? null,
       ...(includeModeration ? { status: row.status, moderationReason: row.moderation_reason } : {}),
     };
   }
@@ -147,7 +155,8 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
   const findVisible = async (id, user) => {
     const row = await db.get('SELECT * FROM listings WHERE id = $1', [idParam(id)]);
     if (!row) throw new HttpError(404, 'not_found');
-    if (row.status !== 'approved' && row.user_id !== user?.id) throw new HttpError(404, 'not_found');
+    // Admins see ads at every stage, so they can check them before deciding.
+    if (row.status !== 'approved' && row.user_id !== user?.id && user?.role !== 'admin') throw new HttpError(404, 'not_found');
     return row;
   };
 
@@ -193,10 +202,10 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
     const phone = normalizePhone(req.body?.phone);
     const email = String(req.body?.email ?? '').trim();
     const password = String(req.body?.password ?? '');
-    if (name.length < 2 || name.length > 100) throw Object.assign(new HttpError(422, 'invalid_field'), { field: 'name' });
-    if (!phone) throw Object.assign(new HttpError(422, 'invalid_field'), { field: 'phone' });
-    if (!EMAIL.test(email) || email.length > 200) throw Object.assign(new HttpError(422, 'invalid_field'), { field: 'email' });
-    if (password.length < 8 || password.length > 200) throw Object.assign(new HttpError(422, 'invalid_field'), { field: 'password' });
+    if (name.length < 2 || name.length > 100) throw fieldError('name');
+    if (!phone) throw fieldError('phone');
+    if (!EMAIL.test(email) || email.length > 200) throw fieldError('email');
+    if (password.length < 8 || password.length > 200) throw fieldError('password');
     const hash = await hashPassword(password);
     let id;
     try {
@@ -214,6 +223,7 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
     const password = String(req.body?.password ?? '');
     const user = await db.get('SELECT * FROM users WHERE lower(email) = lower($1) OR phone = $2', [login, normalizePhone(login) ?? login]);
     if (!user || !(await verifyPassword(password, user.password_hash))) throw new HttpError(401, 'bad_credentials');
+    if (user.blocked_at) throw new HttpError(403, 'account_blocked');
     await setSession(res, user.id);
     res.json({ user: await publicUser(user.id) });
   });
@@ -229,8 +239,8 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
   app.put('/api/auth/profile', requireUser, upload.single('photo'), async (req, res) => {
     const name = String(req.body?.name ?? '').trim();
     const phone = normalizePhone(req.body?.phone);
-    if (name.length < 2 || name.length > 100) throw Object.assign(new HttpError(422, 'invalid_field'), { field: 'name' });
-    if (!phone) throw Object.assign(new HttpError(422, 'invalid_field'), { field: 'phone' });
+    if (name.length < 2 || name.length > 100) throw fieldError('name');
+    if (!phone) throw fieldError('phone');
     const type = req.file ? sniffImage(req.file.buffer) : null;
     if (req.file && !type) throw new HttpError(422, 'invalid_photo');
 
@@ -253,7 +263,7 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
 
   app.post('/api/auth/password', authLimiter, requireUser, async (req, res) => {
     const password = String(req.body?.password ?? '');
-    if (password.length < 8 || password.length > 200) throw Object.assign(new HttpError(422, 'invalid_field'), { field: 'password' });
+    if (password.length < 8 || password.length > 200) throw fieldError('password');
     const { password_hash: hash } = await db.get('SELECT password_hash FROM users WHERE id = $1', [req.user.id]);
     if (!(await verifyPassword(String(req.body?.current ?? ''), hash))) throw new HttpError(403, 'wrong_password');
     const newHash = await hashPassword(password);
@@ -268,7 +278,13 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
 
   // Listings
   app.get('/api/listings', async (req, res) => {
-    const where = [`status = 'approved'`, `deal_status = 'available'`];
+    // Confirmed copies and ads of blocked people stay out of search.
+    const where = [
+      `status = 'approved'`,
+      `deal_status = 'available'`,
+      'duplicate_of IS NULL',
+      'NOT EXISTS (SELECT 1 FROM users WHERE users.id = listings.user_id AND users.blocked_at IS NOT NULL)',
+    ];
     const params = [];
     // Adds a value and returns its numbered placeholder.
     const param = (value) => `$${params.push(value)}`;
@@ -285,11 +301,49 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
     range(yearFrom, 'year >=');
     range(yearTo, 'year <=');
     if (DISTRICTS.has(district)) where.push(`district = ${param(district)}`);
+    for (const name of String(req.query.features ?? '').split(',')) {
+      if (!FEATURES[name]) continue;
+      const { words, not } = FEATURES[name];
+      where.push(`${SEARCH_TEXT} LIKE ANY(${param(likeAny(words))}::text[])`);
+      if (not.length) where.push(`NOT (${SEARCH_TEXT} LIKE ANY(${param(likeAny(not))}::text[]))`);
+    }
+    const maxKm = Number(req.query.maxKm);
+    const hasMaxKm = Number.isFinite(maxKm) && maxKm > 0 && maxKm <= 50;
+    if (hasMaxKm) where.push('lat IS NOT NULL');
     const rows = await db.all(`SELECT * FROM listings WHERE ${where.join(' AND ')} ORDER BY id DESC`, params);
-    res.json({
-      sdu: { lat: SDU.lat, lon: SDU.lon },
-      items: (await presentAll(rows, req.user?.id)).sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity)),
-    });
+    const sort = SORTS.includes(req.query.sort) ? req.query.sort : 'distance';
+    const items = (await presentAll(rows, req.user?.id)).filter((item) => !hasMaxKm || item.distanceKm <= maxKm);
+    res.json({ sdu: { lat: SDU.lat, lon: SDU.lon }, items: items.sort(SORTERS[sort]) });
+  });
+
+  // Turns a phrase such as "однушка до 120к рядом с SDU" into the filters above.
+  app.post('/api/search/parse', searchLimiter, async (req, res) => {
+    const query = String(req.body?.query ?? '').trim();
+    if (query.length < 2 || query.length > 300) throw fieldError('query');
+    res.json(await searchParser.parse(query));
+  });
+
+  app.get('/api/listings/compare', async (req, res) => {
+    const ids = [...new Set(String(req.query.ids ?? '').split(',').map((value) => toInt(value, 1, 2_147_483_647)).filter(Boolean))].slice(0, MAX_COMPARE);
+    if (ids.length === 0) return res.json({ items: [] });
+    const [rows, reviews] = await Promise.all([
+      db.all(`SELECT * FROM listings WHERE id = ANY($1::int[]) AND (status = 'approved' OR user_id = $2)`, [ids, req.user?.id ?? -1]),
+      db.all(`SELECT listing_id, COUNT(*) AS n FROM reviews WHERE status = 'approved' AND listing_id = ANY($1::int[]) GROUP BY listing_id`, [ids]),
+    ]);
+    const reviewCount = new Map(reviews.map((row) => [row.listing_id, row.n]));
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const items = await Promise.all(
+      ids.filter((id) => byId.has(id)).map(async (id) => {
+        const row = byId.get(id);
+        return {
+          ...(await present(row, req.user?.id)),
+          pricePerM2: row.price && row.area ? Math.round(row.price / row.area) : null,
+          reviewCount: reviewCount.get(id) ?? 0,
+          amenities: amenitiesOf(row),
+        };
+      }),
+    );
+    res.json({ items });
   });
 
   app.get('/api/listings/mine', requireUser, async (req, res) => {
@@ -299,11 +353,41 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
 
   app.get('/api/listings/:id', async (req, res) => {
     const row = await findVisible(req.params.id, req.user);
-    res.json({ sdu: { lat: SDU.lat, lon: SDU.lon }, item: await present(row, req.user?.id, row.user_id === req.user?.id) });
+    // The same apartment posted elsewhere, which an admin merged into this ad.
+    const copies = await db.all(
+      `SELECT id, source_type, source_name, source_url FROM listings WHERE duplicate_of = $1 AND status = 'approved' ORDER BY id`,
+      [row.id],
+    );
+    res.json({
+      sdu: { lat: SDU.lat, lon: SDU.lon },
+      item: {
+        ...(await present(row, req.user?.id, row.user_id === req.user?.id || req.user?.role === 'admin')),
+        alsoPublished: copies.map((copy) => ({ id: copy.id, source: { type: copy.source_type, name: copy.source_name, url: copy.source_url } })),
+      },
+    });
+  });
+
+  app.post('/api/listings/:id/reports', requireUser, async (req, res) => {
+    const listing = await findVisible(req.params.id, req.user);
+    if (listing.user_id === req.user.id) throw new HttpError(403, 'own_listing_report');
+    if (!REPORT_REASONS.has(req.body?.reason)) throw fieldError('reason');
+    const comment = String(req.body?.comment ?? '').trim();
+    if (comment.length > 1000) throw fieldError('comment');
+    try {
+      await db.run('INSERT INTO reports (listing_id, user_id, reason, comment) VALUES ($1, $2, $3, $4)', [listing.id, req.user.id, req.body.reason, comment || null]);
+    } catch (error) {
+      if (isUniqueViolation(error)) throw new HttpError(409, 'report_exists');
+      throw error;
+    }
+    res.status(201).json({ status: 'open' });
   });
 
   app.post('/api/listings', requireUser, upload.array('photos', 10), async (req, res) => {
     const listing = validateListing(req.body);
+    // Posting the same apartment again only pushes the other ads down, so it is refused.
+    const own = await db.all(`SELECT * FROM listings WHERE user_id = $1 AND status != 'rejected' AND deal_status = 'available'`, [req.user.id]);
+    const repost = own.find((row) => compareListings({ ...listing, id: 0 }, row).score >= REPOST_THRESHOLD);
+    if (repost) throw Object.assign(new HttpError(409, 'duplicate_listing'), { existingId: repost.id });
     const point = await locate(listing.address);
     const id = await db.transaction(async (tx) => {
       const { id: newId } = await tx.get(
@@ -407,7 +491,7 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
     if (listing.user_id === req.user.id) throw new HttpError(403, 'own_listing_review');
     if (listing.status !== 'approved') throw new HttpError(404, 'not_found');
     const text = String(req.body?.text ?? '').trim();
-    if (text.length < 5 || text.length > 2000) throw Object.assign(new HttpError(422, 'invalid_field'), { field: 'text' });
+    if (text.length < 5 || text.length > 2000) throw fieldError('text');
     const lang = langOf(req);
     // Only a rejected review may be rewritten, so nobody gets a second published one.
     const changed = await db.run(
@@ -469,11 +553,11 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
     if (listing.deal_status !== 'available') throw new HttpError(409, 'listing_closed');
 
     const message = String(req.body?.message ?? '').trim();
-    if (message.length > 1000) throw Object.assign(new HttpError(422, 'invalid_field'), { field: 'message' });
+    if (message.length > 1000) throw fieldError('message');
     const date = req.body?.date ? String(req.body.date) : null;
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     if (date && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date)) || date < yesterday)) {
-      throw Object.assign(new HttpError(422, 'invalid_field'), { field: 'date' });
+      throw fieldError('date');
     }
 
     let conversationId = null;
@@ -628,7 +712,7 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
   app.post('/api/conversations/:id/messages', requireUser, async (req, res) => {
     const conversation = await conversationFor(req.params.id, req.user.id);
     const text = String(req.body?.text ?? '').trim();
-    if (text.length < 1 || text.length > 2000) throw Object.assign(new HttpError(422, 'invalid_field'), { field: 'text' });
+    if (text.length < 1 || text.length > 2000) throw fieldError('text');
     const id = await addMessage(db, conversation.id, req.user.id, text);
     await announceMessage(conversation.id);
     res.status(201).json({ id, text, isMine: true });
@@ -664,6 +748,8 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
     res.set('Cache-Control', 'public, max-age=604800').type(image.type).send(image.body);
   });
 
+  registerAdminRoutes(app, { db, removeFiles, onContentChanged });
+
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'not_found')));
 
   app.use(
@@ -680,7 +766,7 @@ export function createApp({ db, dgis, uploadsDir, clientDist, secureCookies = fa
 
   // eslint-disable-next-line no-unused-vars
   app.use((error, _req, res, _next) => {
-    if (error instanceof HttpError) return res.status(error.status).json({ error: error.code, field: error.field });
+    if (error instanceof HttpError) return res.status(error.status).json({ error: error.code, field: error.field, existingId: error.existingId });
     if (error instanceof multer.MulterError) return res.status(422).json({ error: 'invalid_photo' });
     if (error instanceof DgisError || error.name === 'TimeoutError') {
       console.warn(error.message);

@@ -5,7 +5,7 @@ const scrypt = promisify(crypto.scrypt);
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 export const COOKIE = 'sid';
 /** What the site may show about a user. The profile photo becomes a ready URL. */
-export const USER_COLUMNS = `users.id, users.name, users.phone, users.email,
+export const USER_COLUMNS = `users.id, users.name, users.phone, users.email, users.role,
   CASE WHEN users.avatar IS NULL THEN NULL ELSE '/uploads/' || users.avatar END AS avatar`;
 
 export async function hashPassword(password) {
@@ -49,7 +49,7 @@ export function loadUser(db) {
         (await db.get(
           `SELECT ${USER_COLUMNS} FROM sessions
            JOIN users ON users.id = sessions.user_id
-           WHERE sessions.token_hash = $1 AND sessions.expires_at > $2`,
+           WHERE sessions.token_hash = $1 AND sessions.expires_at > $2 AND users.blocked_at IS NULL`,
           [tokenHash(token), Date.now()],
         )) ?? null;
     }
@@ -59,5 +59,11 @@ export function loadUser(db) {
 
 export function requireUser(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'auth_required' });
+  next();
+}
+
+export function requireAdmin(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'auth_required' });
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
   next();
 }

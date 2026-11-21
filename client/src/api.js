@@ -1,9 +1,10 @@
 export class ApiError extends Error {
-  constructor(status, code, field) {
+  constructor(status, code, field, existingId) {
     super(code);
     this.status = status;
     this.code = code;
     this.field = field;
+    this.existingId = existingId;
   }
 }
 
@@ -26,6 +27,6 @@ export async function api(path, { method = 'GET', body, signal } = {}) {
   const data = await res.json().catch(() => null);
   // A page without our JSON means the request never reached the API.
   if (!data && (res.status >= 500 || res.status === 404)) throw new ApiError(res.status, 'server_offline');
-  if (!res.ok) throw new ApiError(res.status, data?.error ?? 'generic', data?.field);
+  if (!res.ok) throw new ApiError(res.status, data?.error ?? 'generic', data?.field, data?.existingId);
   return data;
 }

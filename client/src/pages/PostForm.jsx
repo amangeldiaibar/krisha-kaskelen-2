@@ -96,7 +96,12 @@ function Form({ listing }) {
         <h2>{t('contacts')}</h2>
         <label>{t('ownerPhone')}<PhoneInput value={values.phone} onChange={change} required /></label>
       </section>
-      {error && <p className="notice error-text" role="alert">{tError(error)}</p>}
+      {error && (
+        <p className="notice error-text" role="alert">
+          {tError(error)}
+          {error.existingId && <> <Link className="link" to={path(`/listing/${error.existingId}`)}>{t('openExisting')}</Link></>}
+        </p>
+      )}
       <button className="btn" type="submit" disabled={busy}>{listing ? t('save') : t('publish')}</button>
     </form>
   );

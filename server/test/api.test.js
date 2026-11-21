@@ -16,6 +16,8 @@ import { createGeminiModerator, createUncheckedModerator, ModerationUnavailable,
 import { createWorker } from '../services/worker.js';
 import { addListingPhotos, importListings, isBlockedUrl, parseResult, saveImports } from '../services/importer.js';
 import { cleanPost, groupAlbums, looksLikeRental, postsToListings, toListing } from '../services/telegram.js';
+import { addressKey, compareListings, findDuplicatePairs } from '../services/duplicates.js';
+import { createSearchParser, parseQueryRules } from '../services/search.js';
 
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
 const form = (over = {}) => {
@@ -627,7 +629,7 @@ describe('importer', () => {
 
   it('stays at five listings, leaves app listings alone and sends imports to moderation', async () => {
     const owner = await newUser();
-    for (let i = 0; i < 3; i += 1) await owner('/api/listings', { method: 'POST', body: form() });
+    for (let i = 0; i < 3; i += 1) await owner('/api/listings', { method: 'POST', body: form({ floor: String(i + 1) }) });
     const results = [1, 2, 3, 4].map((n) => ({ ...good, link: `https://example.kz/ad/${n}` }));
     assert.equal((await importListings({ db, dgis, results })).imported, 2);
     assert.equal((await importListings({ db, dgis, results })).imported, 2);
@@ -798,5 +800,257 @@ describe('krisha.kz CSV import', () => {
     const result = await importKrisha({ db, rows: [], photosDir: tmp, uploadsDir: tmp, geocode: async () => null });
     assert.equal(result.imported, 0);
     assert.equal((await db.get(`SELECT COUNT(*) AS n FROM listings WHERE source_type = 'test'`)).n, 1);
+  });
+});
+
+const silentLog = { warn() {} };
+
+async function newAdmin() {
+  const call = await newUser();
+  const { id } = (await call('/api/auth/me')).data.user;
+  await db.run(`UPDATE users SET role = 'admin' WHERE id = $1`, [id]);
+  return call;
+}
+
+/** Adds an ad straight to the database, as an import would. */
+async function addListing(over = {}) {
+  const values = {
+    source_type: 'import', source_name: 't.me/kaskelen_rent', source_url: `https://t.me/kaskelen_rent/${(serial += 1)}`,
+    title: '1-комнатная квартира', deal: 'rent', price: 120000, rooms: 1, area: 38, floor: null, address: 'Абылай хана, 12',
+    description: 'Сдаю уютную квартиру рядом с университетом, есть мебель и стиральная машина', lat: 43.2001, lon: 76.6501, status: 'approved', user_id: null, ...over,
+  };
+  const columns = Object.keys(values);
+  const { id } = await db.get(`INSERT INTO listings (${columns.join(', ')}) VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING id`, Object.values(values));
+  return id;
+}
+
+describe('admin panel', () => {
+  it('is closed to guests and ordinary users', async () => {
+    assert.equal((await client()('/api/admin/overview')).status, 401);
+    assert.equal((await (await newUser())('/api/admin/overview')).status, 403);
+    const admin = await newAdmin();
+    assert.equal((await admin('/api/auth/me')).data.user.role, 'admin');
+    assert.equal((await admin('/api/admin/overview')).status, 200);
+  });
+
+  it('approves and rejects ads, needs a reason to reject, and logs who did it', async () => {
+    const owner = await newUser();
+    const id = (await owner('/api/listings', { method: 'POST', body: form() })).data.item.id;
+    const admin = await newAdmin();
+    assert.equal((await admin('/api/admin/overview')).data.pendingListings, 1);
+    const pending = await admin('/api/admin/listings?status=pending');
+    assert.equal(pending.data.items[0].owner.phone, (await owner('/api/auth/me')).data.user.phone);
+
+    assert.equal((await admin(`/api/admin/listings/${id}/moderate`, { method: 'POST', json: { decision: 'reject' } })).data.field, 'reason');
+    assert.equal((await admin(`/api/admin/listings/${id}/moderate`, { method: 'POST', json: { decision: 'reject', reason: 'Нет фото' } })).status, 200);
+    assert.equal((await owner(`/api/listings/${id}`)).data.item.moderationReason, 'Нет фото');
+    await admin(`/api/admin/listings/${id}/moderate`, { method: 'POST', json: { decision: 'approve' } });
+    assert.equal((await client()('/api/listings')).data.items.length, 1);
+
+    const log = (await admin('/api/admin/log')).data.items;
+    assert.deepEqual(log.map((entry) => entry.action), ['approve', 'reject']);
+    assert.equal(log[1].note, 'Нет фото');
+  });
+
+  it('keeps the admin decision when the AI answers later', async () => {
+    const owner = await newUser();
+    const id = (await owner('/api/listings', { method: 'POST', body: form() })).data.item.id;
+    const admin = await newAdmin();
+    const moderator = {
+      moderateListing: async () => {
+        await admin(`/api/admin/listings/${id}/moderate`, { method: 'POST', json: { decision: 'approve' } });
+        return { decision: 'reject', reason: 'AI' };
+      },
+      moderateReview: async () => ({ decision: 'approve', reason: 'ok' }),
+    };
+    await createWorker({ db, dgis, log: silentLog, moderator }).tick();
+    assert.equal((await db.get('SELECT status FROM listings WHERE id = $1', [id])).status, 'approved');
+  });
+
+  it('moderates reviews', async () => {
+    const id = await addListing();
+    const renter = await newUser();
+    await renter(`/api/listings/${id}/reviews`, { method: 'POST', json: { text: 'Хорошая квартира' } });
+    const admin = await newAdmin();
+    const [review] = (await admin('/api/admin/reviews?status=pending')).data.items;
+    assert.equal(review.listing.id, id);
+    await admin(`/api/admin/reviews/${review.id}/moderate`, { method: 'POST', json: { decision: 'reject', reason: 'Не по теме' } });
+    const mine = (await renter(`/api/listings/${id}/reviews`)).data.app[0];
+    assert.equal(mine.status, 'rejected');
+    assert.equal((await client()(`/api/listings/${id}/reviews`)).data.app.length, 0);
+  });
+
+  it('blocks a user: logs them out, refuses login and hides their ads, but never blocks an admin', async () => {
+    const owner = await newUser();
+    const me = (await owner('/api/auth/me')).data.user;
+    const id = (await owner('/api/listings', { method: 'POST', body: form() })).data.item.id;
+    await approve(id);
+    const admin = await newAdmin();
+    assert.equal((await admin(`/api/admin/users/${me.id}/block`, { method: 'POST', json: { blocked: true } })).status, 200);
+    assert.equal((await owner('/api/auth/me')).data.user, null);
+    assert.equal((await client()('/api/auth/login', { method: 'POST', json: { login: me.email, password: 'password123' } })).data.error, 'account_blocked');
+    assert.equal((await client()('/api/listings')).data.items.length, 0);
+    await admin(`/api/admin/users/${me.id}/block`, { method: 'POST', json: { blocked: false } });
+    assert.equal((await client()('/api/listings')).data.items.length, 1);
+
+    const adminId = (await admin('/api/auth/me')).data.user.id;
+    assert.equal((await admin(`/api/admin/users/${adminId}/block`, { method: 'POST', json: { blocked: true } })).status, 403);
+  });
+
+  it('deletes any ad, imported ones too', async () => {
+    const id = await addListing();
+    const admin = await newAdmin();
+    assert.equal((await admin(`/api/admin/listings/${id}`, { method: 'DELETE' })).status, 204);
+    assert.equal(await db.get('SELECT id FROM listings WHERE id = $1', [id]), undefined);
+  });
+});
+
+describe('reports', () => {
+  it('lets users report an ad once, not their own, and the admin settles it', async () => {
+    const id = await addListing();
+    const user = await newUser();
+    assert.equal((await client()(`/api/listings/${id}/reports`, { method: 'POST', json: { reason: 'fraud' } })).status, 401);
+    assert.equal((await user(`/api/listings/${id}/reports`, { method: 'POST', json: { reason: 'nonsense' } })).data.field, 'reason');
+    assert.equal((await user(`/api/listings/${id}/reports`, { method: 'POST', json: { reason: 'fraud', comment: 'Просят предоплату' } })).status, 201);
+    assert.equal((await user(`/api/listings/${id}/reports`, { method: 'POST', json: { reason: 'other' } })).data.error, 'report_exists');
+
+    const owner = await newUser();
+    const own = (await owner('/api/listings', { method: 'POST', body: form() })).data.item.id;
+    assert.equal((await owner(`/api/listings/${own}/reports`, { method: 'POST', json: { reason: 'fraud' } })).data.error, 'own_listing_report');
+
+    const admin = await newAdmin();
+    const [report] = (await admin('/api/admin/reports')).data.items;
+    assert.equal(report.comment, 'Просят предоплату');
+    assert.equal(report.listing.openReports, 1);
+    assert.equal((await admin('/api/admin/listings?reported=1')).data.items[0].reportCount, 1);
+    // Taking the ad down closes the complaint.
+    await admin(`/api/admin/listings/${id}/moderate`, { method: 'POST', json: { decision: 'reject', reason: 'Мошенничество' } });
+    assert.equal((await admin('/api/admin/reports')).data.items.length, 0);
+    assert.equal((await admin('/api/admin/reports?status=resolved')).data.items.length, 1);
+    // A new complaint after that is allowed and can be dismissed.
+    const other = await addListing();
+    await user(`/api/listings/${other}/reports`, { method: 'POST', json: { reason: 'wrong_info' } });
+    const [second] = (await admin('/api/admin/reports')).data.items;
+    assert.equal((await admin(`/api/admin/reports/${second.id}`, { method: 'POST', json: { status: 'dismissed' } })).data.status, 'dismissed');
+  });
+});
+
+describe('duplicates', () => {
+  const base = { id: 1, deal: 'rent', rooms: 1, price: 120000, area: 38, floor: 3, address: 'ул. Абылай хана, д. 12', lat: 43.2, lon: 76.65, phone: null, title: '1-комнатная', description: 'Сдаю квартиру рядом с SDU, есть мебель, интернет и стиральная машина, тихие соседи' };
+
+  it('matches the same flat posted in two places', () => {
+    const copy = { ...base, id: 2, address: 'Абылай хана 12', price: 125000, description: 'Квартира у университета SDU. Мебель, интернет, стиралка.', area: 38.5 };
+    const { score, reasons } = compareListings(base, copy);
+    assert.ok(score >= 0.5, `score ${score}`);
+    assert.ok(reasons.includes('same_place'));
+    assert.equal(addressKey('ул. Абылай хана, д. 12'), addressKey('Абылай хана 12'));
+  });
+
+  it('rules out other deals, rooms, floors and far prices', () => {
+    assert.equal(compareListings(base, { ...base, id: 2, deal: 'buy' }).score, 0);
+    assert.equal(compareListings(base, { ...base, id: 2, rooms: 2 }).score, 0);
+    assert.equal(compareListings(base, { ...base, id: 2, floor: 5 }).score, 0);
+    assert.equal(compareListings(base, { ...base, id: 2, price: 200000 }).score, 0);
+    assert.ok(compareListings(base, { ...base, id: 2 }).score >= 0.8);
+  });
+
+  it('skips pairs an admin marked as different', () => {
+    const list = [base, { ...base, id: 2 }];
+    assert.equal(findDuplicatePairs(list).length, 1);
+    assert.equal(findDuplicatePairs(list, { dismissed: new Set(['1:2']) }).length, 0);
+  });
+
+  it('lets an admin merge a copy, which leaves search and shows on the main ad, or mark a pair as different', async () => {
+    const krisha = await addListing({ source_name: 'krisha.kz', source_url: 'https://krisha.kz/a/show/77' });
+    const telegram = await addListing({ address: 'ул. Абылай хана, 12', price: 118000 });
+    const other = await addListing({ address: 'Жандосова 5', lat: 43.25, lon: 76.7, rooms: 1, price: 119000, description: 'Совсем другая квартира в центре, новый ремонт и балкон' });
+    const admin = await newAdmin();
+    const { items } = (await admin('/api/admin/duplicates')).data;
+    assert.equal(items.length, 1);
+    assert.deepEqual([items[0].a.id, items[0].b.id].sort(), [krisha, telegram].sort());
+
+    await admin('/api/admin/duplicates/merge', { method: 'POST', json: { keepId: krisha, duplicateId: telegram } });
+    const ids = (await client()('/api/listings')).data.items.map((item) => item.id).sort();
+    assert.deepEqual(ids, [krisha, other].sort());
+    const main = (await client()(`/api/listings/${krisha}`)).data.item;
+    assert.equal(main.alsoPublished[0].source.name, 't.me/kaskelen_rent');
+    assert.equal((await client()(`/api/listings/${telegram}`)).data.item.duplicateOf, krisha);
+    assert.equal((await admin('/api/admin/duplicates')).data.items.length, 0);
+
+    await admin(`/api/admin/listings/${telegram}/unmerge`, { method: 'POST' });
+    assert.equal((await client()('/api/listings')).data.items.length, 3);
+    // Unmerging also remembers that the pair is not a duplicate.
+    assert.equal((await admin('/api/admin/duplicates')).data.items.length, 0);
+  });
+
+  it('refuses the same owner posting the same flat twice, but not a different one', async () => {
+    const owner = await newUser();
+    const first = (await owner('/api/listings', { method: 'POST', body: form({ floor: '3' }) })).data.item.id;
+    const again = await owner('/api/listings', { method: 'POST', body: form({ floor: '3' }) });
+    assert.equal(again.status, 409);
+    assert.equal(again.data.error, 'duplicate_listing');
+    assert.equal(again.data.existingId, first);
+    assert.equal((await owner('/api/listings', { method: 'POST', body: form({ floor: '5' }) })).status, 201);
+  });
+});
+
+describe('search by phrase', () => {
+  const now = new Date('2026-11-21');
+
+  it('reads Russian, Kazakh and English phrases with rules', () => {
+    assert.deepEqual(parseQueryRules('однушка до 120к рядом с SDU, с мебелью', { now }), { rooms: '1', priceTo: 120000, maxKm: 1.5, features: ['furniture'] });
+    assert.deepEqual(parseQueryRules('снять 2-комнатную от 100 000 до 150 000 тг', { now }), { deal: 'rent', rooms: '2', priceFrom: 100000, priceTo: 150000 });
+    assert.deepEqual(parseQueryRules('купить трешку в новостройке до 25 млн', { now }), { deal: 'buy', rooms: '3+', yearFrom: 2021, priceTo: 25000000 });
+    assert.deepEqual(parseQueryRules('studio for rent under 90k, 10 minutes walk to campus, pets ok', { now }), { deal: 'rent', rooms: '0', priceTo: 90000, maxKm: 0.8, features: ['pets'] });
+    assert.deepEqual(parseQueryRules('SDU жанында бір бөлмелі пәтер жалға 150 мың теңгеге дейін', { now }), { deal: 'rent', rooms: '1', priceTo: 150000, maxKm: 1.5 });
+  });
+
+  it('ignores what the person rejects', () => {
+    assert.equal(parseQueryRules('квартира без мебели', { now }).features, undefined);
+    assert.equal(parseQueryRules('жиһазсыз пәтер', { now }).features, undefined);
+  });
+
+  it('uses Gemini when it answers, drops invalid values, and falls back to rules when it fails', async () => {
+    let sent = null;
+    const ai = { models: { generateContent: async (request) => { sent = request; return { text: JSON.stringify({ deal: 'rent', rooms: '7', priceFrom: null, priceTo: 100000, yearFrom: null, yearTo: null, district: null, maxKm: 2, features: ['pets', 'pool'], sort: 'price_asc' }) }; } } };
+    const parsed = await createSearchParser({ client: ai, model: 'm', log: silentLog }).parse('дешёвая аренда до 100к, можно с котом');
+    assert.deepEqual(parsed, { engine: 'ai', filters: { deal: 'rent', priceTo: 100000, maxKm: 2, features: ['pets'], sort: 'price_asc' } });
+    assert.ok(sent.contents[0].parts[0].text.includes('<request>'));
+    const broken = { models: { generateContent: async () => { throw new Error('503'); } } };
+    assert.equal((await createSearchParser({ client: broken, model: 'm', log: silentLog }).parse('однушка до 100к')).engine, 'rules');
+  });
+
+  it('parses phrases over the API and checks their length', async () => {
+    const call = client();
+    assert.equal((await call('/api/search/parse', { method: 'POST', json: { query: 'x' } })).data.field, 'query');
+    const res = await call('/api/search/parse', { method: 'POST', json: { query: 'аренда однушки до 130 тыс' } });
+    assert.deepEqual(res.data, { engine: 'rules', filters: { deal: 'rent', rooms: '1', priceTo: 130000 } });
+  });
+
+  it('filters by amenities, distance to SDU and sorts', async () => {
+    const furnished = await addListing({ price: 150000, lat: 43.2072, lon: 76.6697 });
+    const bare = await addListing({ price: 90000, description: 'Квартира без мебели, только кухня', lat: 43.2072, lon: 76.6697 });
+    const far = await addListing({ price: 100000, lat: 43.3, lon: 76.9 });
+    const ids = async (query) => (await client()(`/api/listings?${query}`)).data.items.map((item) => item.id);
+    assert.deepEqual(await ids('features=furniture&sort=price_asc'), [far, furnished]);
+    assert.deepEqual(await ids('maxKm=1.5&sort=price_asc'), [bare, furnished]);
+    assert.deepEqual(await ids('sort=price_desc'), [furnished, far, bare]);
+  });
+});
+
+describe('comparison', () => {
+  it('returns ads in the asked order with price per m², reviews and amenities, and hides pending ads of others', async () => {
+    const a = await addListing({ price: 120000, area: 40 });
+    const b = await addListing({ price: 90000, area: 30, description: 'Квартира без мебели, есть балкон и парковка во дворе' });
+    const hidden = await addListing({ status: 'pending' });
+    const { items } = (await client()(`/api/listings/compare?ids=${b},${a},${hidden},${b},abc`)).data;
+    assert.deepEqual(items.map((item) => item.id), [b, a]);
+    assert.equal(items[0].pricePerM2, 3000);
+    assert.equal(items[0].amenities.furniture, false);
+    assert.equal(items[0].amenities.balcony, true);
+    assert.equal(items[1].amenities.furniture, true);
+    assert.equal(items[1].amenities.internet, null);
+    assert.equal(items[1].reviewCount, 0);
+    assert.deepEqual((await client()('/api/listings/compare')).data.items, []);
   });
 });

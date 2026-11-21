@@ -36,7 +36,12 @@ npm run lint
 - **Reviews:** users can leave one review per ad, and never on their own ad.
 - **Profile:** the photo and name at the top right open a menu with settings, favorites, own ads, requests and messages. In settings a user can change the name, phone, profile photo and password.
 - **Favorites and chat:** users can save ads and message owners. Messages arrive live, without a page refresh.
-- **Moderation:** an AI model approves or rejects each ad and review, and gives a reason.
+- **Moderation:** an AI model approves or rejects each ad and review, and gives a reason. An admin can overrule it.
+- **Search by phrase:** type what you want, such as "однушка до 120к рядом с SDU с мебелью", in Russian, Kazakh or English. Gemini turns it into filters, and plain rules do it when there is no key or Gemini fails. The filters appear as chips that can be removed one by one. Search also filters by distance to SDU and by amenities mentioned in the ad text (furniture, pets, internet and more), and sorts by distance, price or date.
+- **Comparison:** the ⇄ button on an ad adds it to a comparison of up to four ads. The table marks the best price, price per m², area, distance and year, and shows which amenities each ad mentions. The list stays in the browser, and the page has a link to share it.
+- **Reports:** a logged-in user can report an ad as fraud, wrong details, already taken, a copy or offensive.
+- **Duplicates:** the same flat posted on krisha.kz and in Telegram is found by deal, rooms, price, area, floor, address, phone and wording. An admin keeps one ad and the copy leaves search; the main ad then links to where else it is published. An owner who posts the same flat twice is refused and sent to the existing ad.
+- **Admin panel** (`/ru/admin`): counts of what needs attention, ads with filters by status and source, AI decisions with an override, likely duplicates side by side, reports, reviews, users with blocking, and a log of every admin action. A blocked user is logged out everywhere, cannot log in, and their ads leave search.
 
 ## Database
 
@@ -72,6 +77,16 @@ Copy `.env.example` to `.env`. The `.env` file must stay out of Git.
 | `SERPAPI_KEY` | Importing public Google results with `npm run import` | The import command does not run |
 | `MODERATION_MODEL` | Choosing the moderation model | Uses `gemini-flash-lite-latest` |
 | `PORT` | Server port | Uses 3000 |
+
+## Admins
+
+Register on the site, then give that account admin rights:
+
+```bash
+npm run admin -- you@example.com
+```
+
+A phone number works too. Add `--remove` to take the rights away. The admin panel then appears in the profile menu. The database must be running.
 
 ## Ads from krisha.kz
 

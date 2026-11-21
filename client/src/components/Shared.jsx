@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { LANGS, LANG_LABELS, translate } from '../i18n.js';
-import { useAuth, useFetch, useI18n, usePolling, useToast } from '../context.jsx';
+import { useAuth, useCompare, useFetch, useI18n, usePolling, useToast } from '../context.jsx';
 import { COUNTRIES, countryByIso, countryOf, flagOf, formatNational, nationalOf, nationalPattern, phoneExample } from '../phone.js';
 
 export function Layout() {
@@ -49,6 +49,7 @@ function LayoutBody() {
         </div>
       </header>
       <div className="page" key={location.pathname}><Outlet /></div>
+      <CompareBar />
       <footer><div className="wrap">{t('footer')}</div></footer>
     </>
   );
@@ -94,6 +95,7 @@ function ProfileMenu() {
       </button>
       {open && (
         <div className="profile-menu pop" role="menu" onClick={() => setOpen(false)}>
+          {user.role === 'admin' && <NavLink role="menuitem" className="menu-admin" to={path('/admin')}>{t('admin')}</NavLink>}
           <NavLink role="menuitem" to={path('/settings')}>{t('settings')}</NavLink>
           <NavLink role="menuitem" to={path('/favorites')}>{t('favorites')}</NavLink>
           <NavLink role="menuitem" to={path('/mine')}>{t('myListings')}</NavLink>
@@ -320,6 +322,43 @@ export function FavoriteButton({ item, inline = false, onChange }) {
   );
 }
 
+/** Adds an ad to the comparison, or takes it out. */
+export function CompareButton({ item, inline = false }) {
+  const { t } = useI18n();
+  const compare = useCompare();
+  const toast = useToast();
+  const active = compare.has(item.id);
+  const label = active ? t('compareRemove') : t('compareAdd');
+
+  function toggle(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!compare.toggle(item.id)) return toast(t('compareFull'), 'bad');
+    if (!active) toast(t('toastCompareAdded'));
+  }
+
+  return (
+    <button type="button" className={`cmp${inline ? ' cmp-inline' : ''}`} aria-pressed={active} aria-label={label} title={label} onClick={toggle}>
+      ⇄{inline ? ` ${active ? t('compareRemove') : t('compare')}` : ''}
+    </button>
+  );
+}
+
+/** Sits at the bottom of every page while ads are picked for comparison. */
+function CompareBar() {
+  const { t, path } = useI18n();
+  const { ids, clear } = useCompare();
+  const location = useLocation();
+  if (ids.length === 0 || location.pathname === path('/compare')) return null;
+  return (
+    <div className="compare-bar pop" role="region" aria-label={t('compareTitle')}>
+      <span>{t('compareTitle')}: <b>{ids.length}</b> / 4</span>
+      <Link className="btn small" to={path('/compare')}>{t('compareOpen', { n: ids.length })}</Link>
+      <button type="button" className="btn ghost small" onClick={clear}>{t('compareClear')}</button>
+    </div>
+  );
+}
+
 /** Asks before deleting, because the ad cannot be restored. */
 export function DeleteListingButton({ item, onDeleted }) {
   const { t, tError } = useI18n();
@@ -378,6 +417,7 @@ export function ListingCard({ item, index = 0, onFavoriteChange, onHover }) {
       onMouseLeave={() => onHover?.(null)}
     >
       <FavoriteButton item={item} onChange={onFavoriteChange} />
+      <CompareButton item={item} />
       <Link to={path(`/listing/${item.id}`)} className="ph">
         {item.photos[0] ? <img src={item.photos[0]} alt={item.title} loading="lazy" /> : <HouseArt id={item.id} label={t('noPhoto')} />}
         {item.photos[0] && item.photosAreExamples && <span className="photo-note">{t('examplePhoto')}</span>}

@@ -1,9 +1,13 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { api } from '../api.js';
 import { useFetch, useI18n } from '../context.jsx';
 import { CountUp, ListingCard, ListingsMap, NumberInput, SkeletonCards, Status, formatPrice } from '../components/Shared.jsx';
 
-const FILTERS = ['deal', 'rooms', 'priceFrom', 'priceTo', 'yearFrom', 'yearTo', 'district'];
+const FILTERS = ['deal', 'rooms', 'priceFrom', 'priceTo', 'yearFrom', 'yearTo', 'district', 'maxKm', 'features', 'sort', 'q'];
+const FEATURES = ['furniture', 'pets', 'internet', 'washer', 'parking', 'balcony', 'conditioner'];
+const DISTANCES = ['1', '1.5', '3', '5'];
+const SORTS = ['distance', 'price_asc', 'price_desc', 'new'];
 
 const PRICE_DIGITS = 11;
 const YEAR_DIGITS = 4;
@@ -34,6 +38,80 @@ function DealTabs({ current }) {
 }
 
 const fromParams = (params) => Object.fromEntries(FILTERS.map((name) => [name, params.get(name) ?? '']));
+const featureList = (value) => (value ? value.split(',').filter((name) => FEATURES.includes(name)) : []);
+
+/** Filters from the phrase parser, in the same shape as the URL. */
+const toParams = (filters) =>
+  Object.fromEntries(Object.entries(filters).map(([key, value]) => [key, Array.isArray(value) ? value.join(',') : String(value)]));
+
+/** A free-text box: the server turns the phrase into filters, with Gemini or with rules. */
+function SmartSearch({ initial, onFilters }) {
+  const { t, tError } = useI18n();
+  const [query, setQuery] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState(null);
+
+  async function run(text) {
+    const phrase = text.trim();
+    if (phrase.length < 2) return;
+    setQuery(phrase);
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { filters, engine } = await api('/search/parse', { method: 'POST', body: { query: phrase } });
+      if (Object.keys(filters).length === 0) setMessage(t('smartNothing'));
+      else onFilters(filters, phrase, engine);
+    } catch (failure) {
+      setMessage(tError(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="smart" role="search" onSubmit={(event) => { event.preventDefault(); run(query); }}>
+      <label htmlFor="smart-query" className="smart-label">{t('smartTitle')}</label>
+      <div className="smart-row">
+        <input id="smart-query" type="search" value={query} maxLength={300} placeholder={t('smartPh')} onChange={(event) => setQuery(event.target.value)} />
+        <button className="btn" type="submit" disabled={busy || query.trim().length < 2}>{busy ? '…' : t('smartGo')}</button>
+      </div>
+      <div className="smart-examples">
+        <span>{t('smartExamples')}</span>
+        {['smartEx1', 'smartEx2', 'smartEx3'].map((key) => (
+          <button key={key} type="button" className="chip-btn" disabled={busy} onClick={() => run(t(key))}>{t(key)}</button>
+        ))}
+      </div>
+      {message && <p className="smart-message" role="alert">{message}</p>}
+    </form>
+  );
+}
+
+/** Every applied filter as a chip that removes it. */
+function ActiveFilters({ applied, engine, onRemove, onReset }) {
+  const { t } = useI18n();
+  const chips = [];
+  if (applied.deal) chips.push(['deal', t(applied.deal)]);
+  if (applied.rooms) chips.push(['rooms', applied.rooms === '0' ? t('studio') : t('roomApartment', { n: applied.rooms })]);
+  if (applied.priceFrom) chips.push(['priceFrom', t('chipPriceFrom', { p: formatPrice(applied.priceFrom) })]);
+  if (applied.priceTo) chips.push(['priceTo', t('chipPriceTo', { p: formatPrice(applied.priceTo) })]);
+  if (applied.yearFrom) chips.push(['yearFrom', t('chipYearFrom', { n: applied.yearFrom })]);
+  if (applied.yearTo) chips.push(['yearTo', t('chipYearTo', { n: applied.yearTo })]);
+  if (applied.district) chips.push(['district', t(applied.district)]);
+  if (applied.maxKm) chips.push(['maxKm', t('chipKm', { n: applied.maxKm })]);
+  for (const name of featureList(applied.features)) chips.push([`feature:${name}`, t(`amenity_${name}`)]);
+  if (applied.sort && applied.sort !== 'distance') chips.push(['sort', t(`sort_${applied.sort}`)]);
+  if (chips.length === 0) return null;
+  return (
+    <div className="active-filters" aria-live="polite">
+      {applied.q && <span className="meta">{t('smartUnderstood')}</span>}
+      {chips.map(([key, label]) => (
+        <button key={key} type="button" className="chip" onClick={() => onRemove(key)} aria-label={`${label} ×`}>{label} <span aria-hidden="true">×</span></button>
+      ))}
+      {applied.q && engine && <span className="engine">{t(engine === 'ai' ? 'smartByAi' : 'smartByRules')}</span>}
+      <button type="button" className="link reset" onClick={onReset}>{t('smartReset')}</button>
+    </div>
+  );
+}
 
 export default function Home() {
   const { t } = useI18n();
@@ -42,14 +120,32 @@ export default function Home() {
   const query = params.toString();
   const applied = fromParams(params);
   const [draft, setDraft] = useState({ query, values: applied });
+  const [engine, setEngine] = useState(null);
   // The header links change the URL directly, so the form follows the URL.
   const values = draft.query === query ? draft.values : applied;
   const { data, loading, error, reload } = useFetch(`/listings${query ? `?${query}` : ''}`);
 
   const change = (event) => setDraft({ query, values: { ...values, [event.target.name]: event.target.value } });
+  const toggleFeature = (name) => {
+    const list = featureList(values.features);
+    const next = list.includes(name) ? list.filter((item) => item !== name) : [...list, name];
+    setDraft({ query, values: { ...values, features: next.join(',') } });
+  };
+  const apply = (next) => setParams(Object.fromEntries(Object.entries(next).filter(([, value]) => value !== '' && value !== undefined)));
   const submit = (event) => {
     event.preventDefault();
-    setParams(Object.fromEntries(Object.entries(values).filter(([, value]) => value !== '')));
+    apply(values);
+  };
+  const fromPhrase = (filters, phrase, how) => {
+    setEngine(how);
+    apply({ ...toParams(filters), q: phrase });
+  };
+  const removeFilter = (key) => {
+    if (key.startsWith('feature:')) {
+      const name = key.slice('feature:'.length);
+      return apply({ ...applied, features: featureList(applied.features).filter((item) => item !== name).join(',') });
+    }
+    apply({ ...applied, [key]: '' });
   };
 
   return (
@@ -58,6 +154,7 @@ export default function Home() {
         <div className="wrap">
           <h1>{t('heroTitle')}</h1>
           <p>{t('heroText')}</p>
+          <SmartSearch key={applied.q} initial={applied.q} onFilters={fromPhrase} />
           <DealTabs current={applied.deal} />
           {data && <HeroStats items={data.items} />}
         </div>
@@ -97,11 +194,32 @@ export default function Home() {
               <option value="new">{t('new')}</option>
             </select>
           </label>
+          <label>{t('maxKm')}
+            <select name="maxKm" value={values.maxKm} onChange={change}>
+              <option value="">{t('any')}</option>
+              {[...new Set([...DISTANCES, values.maxKm].filter(Boolean))].map((km) => <option key={km} value={km}>{t('withinKm', { n: km })}</option>)}
+            </select>
+          </label>
+          <fieldset className="features">
+            <legend>{t('featuresLabel')}</legend>
+            {FEATURES.map((name) => (
+              <label className="check" key={name}>
+                <input type="checkbox" checked={featureList(values.features).includes(name)} onChange={() => toggleFeature(name)} />
+                {t(`amenity_${name}`)}
+              </label>
+            ))}
+          </fieldset>
+          <label>{t('sortBy')}
+            <select name="sort" value={values.sort || 'distance'} onChange={change}>
+              {SORTS.map((sort) => <option key={sort} value={sort}>{t(`sort_${sort}`)}</option>)}
+            </select>
+          </label>
           <button className="btn" type="submit">{t('showResults')}</button>
         </form>
         <section className="list" aria-live="polite">
           {loading && !data && <SkeletonCards />}
           <Status error={error} onRetry={reload} />
+          <ActiveFilters applied={applied} engine={engine} onRemove={removeFilter} onReset={() => apply({})} />
           {data && (
             <>
               <section className="panel" style={{ marginTop: 0 }}>

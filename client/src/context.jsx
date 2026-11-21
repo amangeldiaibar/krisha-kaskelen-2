@@ -27,6 +27,62 @@ export function AuthProvider({ children }) {
 
 export const useAuth = () => useContext(AuthContext);
 
+export const MAX_COMPARE = 4;
+const COMPARE_KEY = 'krisha-compare';
+const CompareContext = createContext(null);
+
+const readCompare = () => {
+  try {
+    const ids = JSON.parse(localStorage.getItem(COMPARE_KEY) ?? '[]');
+    return Array.isArray(ids) ? ids.filter(Number.isInteger).slice(0, MAX_COMPARE) : [];
+  } catch {
+    return [];
+  }
+};
+
+/** The ads picked for comparison. They stay in this browser and follow other open tabs. */
+export function CompareProvider({ children }) {
+  const [ids, setIds] = useState(readCompare);
+
+  useEffect(() => {
+    const sync = (event) => {
+      if (event.key === COMPARE_KEY) setIds(readCompare());
+    };
+    window.addEventListener('storage', sync);
+    return () => window.removeEventListener('storage', sync);
+  }, []);
+
+  const save = useCallback((next) => {
+    setIds(next);
+    try {
+      localStorage.setItem(COMPARE_KEY, JSON.stringify(next));
+    } catch {
+      // Private windows may refuse storage. The list then lasts until the page closes.
+    }
+  }, []);
+
+  const value = useMemo(() => ({
+    ids,
+    has: (id) => ids.includes(id),
+    /** Returns false when the list is already full. */
+    toggle: (id) => {
+      if (ids.includes(id)) {
+        save(ids.filter((item) => item !== id));
+        return true;
+      }
+      if (ids.length >= MAX_COMPARE) return false;
+      save([...ids, id]);
+      return true;
+    },
+    remove: (id) => save(ids.filter((item) => item !== id)),
+    replace: (next) => save([...new Set(next)].slice(0, MAX_COMPARE)),
+    clear: () => save([]),
+  }), [ids, save]);
+  return <CompareContext.Provider value={value}>{children}</CompareContext.Provider>;
+}
+
+export const useCompare = () => useContext(CompareContext);
+
 const ToastContext = createContext(() => {});
 const TOAST_MS = 3500;
 
@@ -65,7 +121,7 @@ export function useI18n() {
 }
 
 const FIELD_LABELS = {
-  title: 'adTitle', deal: 'deal', price: 'priceTenge', rooms: 'rooms', area: 'area', floor: 'floor', floors: 'floorsInBuilding', year: 'yearBuilt', district: 'district', address: 'address', description: 'description', phone: 'phone', name: 'fullName', email: 'email', password: 'password', text: 'reviews', message: 'dealMessage', date: 'dealDateRent',
+  title: 'adTitle', deal: 'deal', price: 'priceTenge', rooms: 'rooms', area: 'area', floor: 'floor', floors: 'floorsInBuilding', year: 'yearBuilt', district: 'district', address: 'address', description: 'description', phone: 'phone', name: 'fullName', email: 'email', password: 'password', text: 'reviews', message: 'dealMessage', date: 'dealDateRent', reason: 'adminReason', comment: 'reportComment', query: 'smartTitle',
 };
 
 /** Loads data with loading and error states, and drops responses that arrive late. */

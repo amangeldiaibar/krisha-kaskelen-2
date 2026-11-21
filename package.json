@@ -17,6 +17,7 @@
     "telegram:qr": "node server/telegram-qr.js",
     "import:telegram": "node server/telegram-import.js",
     "import:krisha": "node server/krisha-csv-import.js",
+    "admin": "node server/make-admin.js",
     "test": "node --test \"server/test/*.test.js\" && vitest run --config client/vite.config.js",
     "lint": "eslint ."
   },

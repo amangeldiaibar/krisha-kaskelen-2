@@ -4,6 +4,7 @@ import { openDatabase } from './open-db.js';
 import { createApp } from './app.js';
 import { createDgis } from './services/dgis.js';
 import { createGeminiModerator, createUncheckedModerator } from './services/moderation.js';
+import { createSearchParser } from './services/search.js';
 import { createWorker } from './services/worker.js';
 
 const WORKER_INTERVAL_MS = 30_000;
@@ -42,6 +43,8 @@ const app = createApp({
   dgis,
   uploadsDir: config.uploadsDir,
   clientDist: path.join(config.root, 'client/dist'),
+  // Without a key, search phrases are read by plain rules.
+  searchParser: createSearchParser({ apiKey: config.geminiKey, model }),
   secureCookies: config.isProduction,
   onContentChanged: runWorker,
 });

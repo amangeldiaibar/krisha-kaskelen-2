@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth, useFetch, useI18n, usePolling, useToast } from '../context.jsx';
-import { DeleteListingButton, Distance, FavoriteButton, HouseArt, ListingsMap, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
+import { CompareButton, DeleteListingButton, Distance, FavoriteButton, HouseArt, ListingsMap, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
 
 const PENDING_POLL_MS = 3000;
 
@@ -290,6 +290,73 @@ function Reviews({ listing }) {
   );
 }
 
+const REPORT_REASONS = ['fraud', 'wrong_info', 'unavailable', 'duplicate', 'offensive', 'other'];
+
+/** Lets a visitor flag an ad for the admins. Guests are sent to log in first. */
+function ReportButton({ item }) {
+  const { user } = useAuth();
+  const { t, tError, path } = useI18n();
+  const toast = useToast();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const dialog = useRef(null);
+  const [reason, setReason] = useState('fraud');
+  const [comment, setComment] = useState('');
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const open = () => {
+    if (!user) return navigate(path('/login'), { state: { from: location.pathname } });
+    setError(null);
+    dialog.current?.showModal();
+  };
+
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api(`/listings/${item.id}/reports`, { method: 'POST', body: { reason, comment } });
+      dialog.current?.close();
+      setComment('');
+      toast(t('toastReported'));
+    } catch (failure) {
+      setError(failure);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button type="button" className="link report-btn" onClick={open}>⚑ {t('report')}</button>
+      <dialog ref={dialog} className="dialog" onClick={(event) => event.target === dialog.current && dialog.current.close()}>
+        <form className="stack" onSubmit={submit}>
+          <h2>{t('reportTitle')}</h2>
+          <p className="meta">{item.title}</p>
+          <fieldset className="radios">
+            <legend>{t('reportReason')}</legend>
+            {REPORT_REASONS.map((value) => (
+              <label className="check" key={value}>
+                <input type="radio" name="reason" value={value} checked={reason === value} onChange={() => setReason(value)} />
+                {t(`report_${value}`)}
+              </label>
+            ))}
+          </fieldset>
+          <label>{t('reportComment')}
+            <textarea value={comment} maxLength={1000} onChange={(event) => setComment(event.target.value)} />
+          </label>
+          {error && <p className="error-text" role="alert">{tError(error)}</p>}
+          <div className="actions">
+            <button className="btn" type="submit" disabled={busy}>{t('reportSend')}</button>
+            <button className="btn ghost" type="button" onClick={() => dialog.current.close()}>{t('dealCancel')}</button>
+          </div>
+        </form>
+      </dialog>
+    </>
+  );
+}
+
 function ContactPanel({ item }) {
   const { user } = useAuth();
   const { t, path, tError } = useI18n();
@@ -333,6 +400,7 @@ function ContactPanel({ item }) {
 export default function Listing() {
   const { id } = useParams();
   const { t, path } = useI18n();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const { data, loading, error, reload } = useFetch(`/listings/${id}`);
   const waiting = data?.item.status === 'pending';
@@ -353,11 +421,14 @@ export default function Listing() {
   return (
     <main className="wrap">
       <p className="crumb"><Link to={path()}>{t('allApartments')}</Link> / {label}</p>
-      {item.isOwner && item.status !== 'approved' && (
+      {(item.isOwner || user?.role === 'admin') && item.status && item.status !== 'approved' && (
         <p className="notice">
           <span className={`status ${item.status}`}>{t(`status_${item.status}`)}</span>
           {item.moderationReason && ` ${t('moderationReason', { r: item.moderationReason })}`}
         </p>
+      )}
+      {item.duplicateOf && (
+        <p className="notice">{t('duplicateNotice')} <Link className="link" to={path(`/listing/${item.duplicateOf}`)}>{t('duplicateOpenMain')}</Link></p>
       )}
       <div className="detail">
         <div>
@@ -365,6 +436,19 @@ export default function Listing() {
           <section className="panel">
             <h2>{item.title}</h2>
             <SourceBadge source={item.source} />
+            {item.alsoPublished?.length > 0 && (
+              <p className="also">
+                {t('alsoPublished')}{' '}
+                {item.alsoPublished.map((copy, index) => (
+                  <span key={copy.id}>
+                    {index > 0 && ', '}
+                    {copy.source.url
+                      ? <a className="link" href={copy.source.url} target="_blank" rel="noopener noreferrer nofollow">{copy.source.name}</a>
+                      : <Link className="link" to={path(`/listing/${copy.id}`)}>{t('sourceApp')}</Link>}
+                  </span>
+                ))}
+              </p>
+            )}
             <dl style={{ marginTop: 12 }}>
               <dt>{t('price')}</dt>
               <dd>{formatPrice(item.price)}{item.deal === 'rent' ? ` / ${t('perMonth')}` : ''}</dd>
@@ -393,11 +477,13 @@ export default function Listing() {
             <DealPanel item={item} onChanged={reload} />
             <div className="actions">
               <FavoriteButton item={item} inline />
+              <CompareButton item={item} inline />
               {item.isOwner && <Link className="btn ghost" to={path(`/listing/${item.id}/edit`)}>{t('edit')}</Link>}
               {item.isOwner && <DeleteListingButton item={item} onDeleted={() => navigate(path('/mine'))} />}
             </div>
           </section>
           <ContactPanel item={item} />
+          {!item.isOwner && <p className="report-line"><ReportButton item={item} /></p>}
         </aside>
       </div>
     </main>

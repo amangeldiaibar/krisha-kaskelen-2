@@ -27,9 +27,10 @@ export function createWorker({ db, dgis, moderator, log = console }) {
       try {
         const photos = await db.all('SELECT filename, mime FROM photos WHERE listing_id = $1', [listing.id]);
         const verdict = await moderator.moderateListing(listing, photos);
-        // An edit made while the AI was thinking keeps the listing pending for a fresh check.
+        // An edit made while the AI was thinking keeps the listing pending for a fresh check,
+        // and a decision an admin made meanwhile is kept.
         await db.run(
-          'UPDATE listings SET status = $1, moderation_reason = $2 WHERE id = $3 AND updated_at::text = $4',
+          `UPDATE listings SET status = $1, moderation_reason = $2 WHERE id = $3 AND updated_at::text = $4 AND status = 'pending'`,
           [verdict.decision === 'approve' ? 'approved' : 'rejected', verdict.reason, listing.id, listing.edited],
         );
       } catch (error) {
@@ -41,7 +42,8 @@ export function createWorker({ db, dgis, moderator, log = console }) {
       try {
         const listing = await db.get('SELECT title, address FROM listings WHERE id = $1', [review.listing_id]);
         const verdict = await moderator.moderateReview(review, listing);
-        await db.run('UPDATE reviews SET status = $1, moderation_reason = $2 WHERE id = $3 AND text = $4', [
+        // An admin who decided first wins.
+        await db.run(`UPDATE reviews SET status = $1, moderation_reason = $2 WHERE id = $3 AND text = $4 AND status = 'pending'`, [
           verdict.decision === 'approve' ? 'approved' : 'rejected',
           verdict.reason,
           review.id,
