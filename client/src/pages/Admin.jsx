@@ -337,7 +337,10 @@ function ReviewsTab({ params, setFilter }) {
           <p className="meta">{review.author.name} · {date(review.createdAt)} · <Link className="link" to={path(`/listing/${review.listing.id}`)}>{t('onAd', { t: review.listing.title })}</Link></p>
           <span className={`status ${review.status}`}>{t(`status_${review.status}`)}</span>
           <Decision item={review} />
-          <div className="actions"><ModerationActions url={`/admin/reviews/${review.id}/moderate`} status={review.status} onDone={reload} /></div>
+          <div className="actions">
+            <ModerationActions url={`/admin/reviews/${review.id}/moderate`} status={review.status} onDone={reload} />
+            <Link className="btn ghost" to={path(`/listing/${review.listing.id}`)}>{t('openAd')} →</Link>
+          </div>
         </article>
       ))}
     </>

@@ -9,7 +9,8 @@ from ..parsers import parse_list
 log = get_logger("crawl")
 
 
-def run(db: Database, ctrl: Controller, city: str, max_pages: int | None = None) -> dict:
+def run(db: Database, ctrl: Controller, city: str, max_pages: int | None = None,
+        deal: str = "rent") -> dict:
     if city not in config.CITY_PATHS:
         raise ValueError(f"unknown city {city!r}; choose from {list(config.CITY_PATHS)}")
 
@@ -21,7 +22,7 @@ def run(db: Database, ctrl: Controller, city: str, max_pages: int | None = None)
     while total_pages is None or page <= total_pages:
         if max_pages and page > max_pages:
             break
-        url = config.city_url(city, page)
+        url = config.city_url(city, page, deal)
         result, delay = ctrl.fetch(url, engine="http", referer=referer)
         if not result.ok:
             ctrl.record(result, result.classify(), delay)
@@ -43,7 +44,7 @@ def run(db: Database, ctrl: Controller, city: str, max_pages: int | None = None)
                              "floor": card.floor, "floors_total": card.floors_total,
                              "price_kzt": card.price_kzt, "address": card.address,
                              "description": card.description}
-            is_new = db.upsert_stub(cid, config.detail_url(cid), city, card_data)
+            is_new = db.upsert_stub(cid, config.detail_url(cid), city, card_data, deal)
             if card and card.photos:
                 db.add_card_photos(cid, card.photos)
             stats["new" if is_new else "seen"] += 1
@@ -51,7 +52,7 @@ def run(db: Database, ctrl: Controller, city: str, max_pages: int | None = None)
         stats["pages"] += 1
         if total_pages is None:
             total_pages = parsed.page_count
-            log.info("city=%s nb_total=%d -> %d pages", city, parsed.nb_total, total_pages)
+            log.info("city=%s deal=%s nb_total=%d -> %d pages", city, deal, parsed.nb_total, total_pages)
         referer = url
         page += 1
 

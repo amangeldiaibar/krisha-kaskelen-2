@@ -823,6 +823,13 @@ describe('krisha.kz CSV import', () => {
     assert.equal(listing.floors, 7);
     assert.equal(listing.address, 'Алтын-ауыл');
     assert.equal(listing.description, 'монолитный дом, евроремонт');
+
+    const sale = '\uFEFFid,url,rent_period,price_kzt,rooms,area_total,floor,floors_total,address,description,deal_type\r\n'
+      + '1017000001,https://krisha.kz/a/show/1017000001,,23500000,2,54.0,3,5,Абылай хана 15,"2-комнатная квартира · 54 м² · 3/5 этаж 23 500 000 ₸ Абылай хана 15 кирпичный дом, 2015 г.п. Хозяин недвижимости",sale\r\n';
+    const [forSale] = parseCsv(sale).map(rowToListing);
+    assert.equal(forSale.deal, 'buy');
+    assert.equal(forSale.price, 23500000);
+    assert.equal(forSale.description, 'кирпичный дом, 2015 г.п.');
   });
 
   it('updates ads already on the site, removes ads gone from the file and test ads, keeps Telegram ads and ads people posted, and adds photos from the folder', async () => {
@@ -1203,5 +1210,42 @@ describe('OpenStreetMap fallback geocoding', () => {
 
     const allDown = createDgis({ key: 'blocked', db, fetchImpl: dgisDown, fallback: { geocode: async () => { throw new Error('offline'); } } });
     await assert.rejects(allDown.geocode('Наурызбай батыра 25'), DgisError);
+  });
+});
+
+describe('addresses that name SDU as a landmark', () => {
+  it('looks up the street before the dash and never places the ad on the campus', async () => {
+    const queries = [];
+    const fetchImpl = async (url) => {
+      queries.push(url.searchParams.get('q'));
+      return {
+        ok: true,
+        json: async () => ({
+          meta: { code: 200 },
+          result: { items: [
+            { type: 'building', name: 'Университет им. Сулеймана Демиреля', point: { lat: 43.207176, lon: 76.66967 } },
+            { type: 'street', name: 'улица Жеруйык', point: { lat: 43.203679, lon: 76.664786 } },
+          ] },
+        }),
+      };
+    };
+    const geo = createDgis({ key: 'k', db, fetchImpl, fallback: null });
+    assert.deepEqual(await geo.geocode('Жеруйык — СДУ', { approximate: true }), { lat: 43.203679, lon: 76.664786 });
+    assert.equal(queries[0], 'Каскелен, Жеруйык');
+    assert.equal(await geo.geocode('Жеруйык — СДУ'), null);
+  });
+});
+
+describe('search figures', () => {
+  it('counts the nearest distance and the lowest prices over every page', async () => {
+    for (let i = 0; i < 25; i += 1) await addListing({ price: 200000 + i, lat: 43.25, lon: 76.7 });
+    await addListing({ price: 90000, lat: 43.2075, lon: 76.6705 });
+    await addListing({ deal: 'buy', price: 21000000, lat: null, lon: null });
+    const { stats, total, items } = (await client()('/api/listings?sort=price_desc')).data;
+    assert.equal(total, 27);
+    assert.equal(items.length, 20);
+    assert.equal(stats.minRent, 90000);
+    assert.equal(stats.minBuy, 21000000);
+    assert.ok(stats.nearestKm > 0 && stats.nearestKm < 0.2);
   });
 });

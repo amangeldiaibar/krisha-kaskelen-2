@@ -25,6 +25,11 @@ const STREAM_PING_MS = 25_000;
 const MAX_COMPARE = 4;
 /** Ads on one page of search results. */
 const SEARCH_PAGE_SIZE = 20;
+/** The smallest known value, or null when none is known. */
+const least = (values) => {
+  const known = values.filter((value) => value !== null && value !== undefined);
+  return known.length ? Math.min(...known) : null;
+};
 const REPORT_REASONS = new Set(['fraud', 'wrong_info', 'unavailable', 'duplicate', 'offensive', 'other']);
 const SEARCH_TEXT = "lower(listings.title || ' ' || listings.description)";
 const likeAny = (words) => words.map((word) => `%${word}%`);
@@ -324,6 +329,12 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
       total: items.length,
       page,
       pages,
+      // Figures for the whole result, not only this page.
+      stats: {
+        nearestKm: least(items.map((item) => item.distanceKm)),
+        minRent: least(items.filter((item) => item.deal === 'rent').map((item) => item.price)),
+        minBuy: least(items.filter((item) => item.deal === 'buy').map((item) => item.price)),
+      },
     });
   });
 

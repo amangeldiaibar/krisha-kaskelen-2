@@ -10,12 +10,12 @@ from .logging_setup import setup_logging
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="krisha", description="House Pricer krisha.kz rent parser")
+    p = argparse.ArgumentParser(prog="krisha", description="House Pricer krisha.kz rent and sale parser")
     sub = p.add_subparsers(dest="command", required=True)
 
     c = sub.add_parser("crawl", help="collect listing ids from search pages")
     c.add_argument("--city", choices=list(config.CITY_PATHS), required=True)
-    c.add_argument("--deal", choices=["rent"], default="rent")
+    c.add_argument("--deal", choices=list(config.DEALS), default="rent")
     c.add_argument("--max-pages", type=int, default=None)
 
     d = sub.add_parser("details", help="fetch + parse detail pages (Playwright)")
@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "crawl":
             from .commands import crawl
-            crawl.run(db, ctrl, args.city, args.max_pages)
+            crawl.run(db, ctrl, args.city, args.max_pages, args.deal)
         elif args.command == "details":
             from .commands import details
             details.run(db, ctrl, args.city, args.limit, args.refresh_missing, args.cached_only)

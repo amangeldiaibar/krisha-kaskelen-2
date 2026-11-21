@@ -10,3 +10,14 @@ export function distanceKm(a, b) {
     Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
   return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(h));
 }
+
+/**
+ * The address without the town and without a landmark after a dash:
+ * "Жеруйык — СДУ" is a street near SDU, not SDU itself.
+ */
+export function streetPart(address) {
+  return String(address ?? '')
+    .split(/\s[—–-]\s/)[0]
+    .replace(/^\s*(?:г\.?\s*)?Каскел[её]н\s*,?\s*/i, '')
+    .trim();
+}

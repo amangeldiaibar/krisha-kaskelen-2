@@ -51,7 +51,7 @@ class Database:
         self.close()
 
     def upsert_stub(self, listing_id: int, url: str, city: str,
-                    card: dict[str, Any] | None = None) -> bool:
+                    card: dict[str, Any] | None = None, deal: str = "rent") -> bool:
         now = _now()
         card = card or {}
         city = normalize_city(city)
@@ -74,7 +74,7 @@ class Database:
                 "rooms, area_total, floor, floors_total, price_kzt, address, "
                 "description, first_seen_at, last_seen_at) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (listing_id, url, "rent", "month", city,
+                (listing_id, url, deal, "month" if deal == "rent" else None, city,
                  card.get("rooms"), card.get("area_total"), card.get("floor"),
                  card.get("floors_total"), card.get("price_kzt"),
                  card.get("address"), card.get("description"), now, now),

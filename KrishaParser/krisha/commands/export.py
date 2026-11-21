@@ -14,7 +14,7 @@ COLUMNS = [
     "area_kitchen", "floor", "floors_total", "year_built", "building_type",
     "complex_name", "city", "district", "address", "lat", "lon", "furniture",
     "bathroom", "balcony", "renovation_text", "photos_count", "published_at",
-    "duplicate_group_id", "description",
+    "duplicate_group_id", "description", "deal_type",
 ]
 
 

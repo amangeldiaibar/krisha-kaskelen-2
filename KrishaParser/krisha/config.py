@@ -53,6 +53,12 @@ CITY_PATHS = {
     "almaty": "/arenda/kvartiry/almaty/",
     "almaty_oblast": "/arenda/kvartiry/almatinskaja-oblast/",
 }
+SALE_PATHS = {
+    "kaskelen": "/prodazha/kvartiry/kaskelen/",
+    "almaty": "/prodazha/kvartiry/almaty/",
+    "almaty_oblast": "/prodazha/kvartiry/almatinskaja-oblast/",
+}
+DEALS = ("rent", "sale")
 LISTINGS_PER_PAGE = 20
 
 BLOCK_STATUS_CODES = {403, 429, 468}
@@ -76,8 +82,8 @@ def default_headers(referer: str | None = None) -> dict[str, str]:
     return h
 
 
-def city_url(city: str, page: int = 1) -> str:
-    path = CITY_PATHS[city]
+def city_url(city: str, page: int = 1, deal: str = "rent") -> str:
+    path = SALE_PATHS[city] if deal == "sale" else CITY_PATHS[city]
     url = BASE_URL + path
     if page > 1:
         url += f"?page={page}"

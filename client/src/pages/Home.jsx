@@ -12,15 +12,16 @@ const SORTS = ['distance', 'price_asc', 'price_desc', 'new'];
 const PRICE_DIGITS = 11;
 const YEAR_DIGITS = 4;
 
-function HeroStats({ items }) {
+function HeroStats({ data }) {
   const { t } = useI18n();
-  const distances = items.map((item) => item.distanceKm).filter((value) => value !== null);
-  const rents = items.filter((item) => item.deal === 'rent' && item.price).map((item) => item.price);
+  const { nearestKm = null, minRent = null, minBuy = null } = data.stats ?? {};
+  const round = (value) => formatPrice(Math.round(value / 1000) * 1000);
   return (
     <dl className="stats">
-      <div><dt>{t('statAds')}</dt><dd><CountUp value={items.length} format={(value) => String(Math.round(value))} /></dd></div>
-      {distances.length > 0 && <div><dt>{t('statNearest')}</dt><dd><CountUp value={Math.min(...distances)} format={(value) => value.toFixed(1)} /></dd></div>}
-      {rents.length > 0 && <div><dt>{t('statFrom')}</dt><dd><CountUp value={Math.min(...rents)} format={(value) => formatPrice(Math.round(value / 1000) * 1000)} /></dd></div>}
+      <div><dt>{t('statAds')}</dt><dd><CountUp value={data.total ?? data.items.length} format={(value) => String(Math.round(value))} /></dd></div>
+      {nearestKm !== null && <div><dt>{t('statNearest')}</dt><dd><CountUp value={nearestKm} format={(value) => value.toFixed(1)} /></dd></div>}
+      {minRent !== null && <div><dt>{t('statFrom')}</dt><dd><CountUp value={minRent} format={round} /></dd></div>}
+      {minRent === null && minBuy !== null && <div><dt>{t('statBuyFrom')}</dt><dd><CountUp value={minBuy} format={round} /></dd></div>}
     </dl>
   );
 }
@@ -163,7 +164,7 @@ export default function Home() {
           <p>{t('heroText')}</p>
           <SmartSearch key={applied.q} initial={applied.q} onFilters={fromPhrase} />
           <DealTabs current={applied.deal} />
-          {data && <HeroStats items={data.items} />}
+          {data && <HeroStats data={data} />}
         </div>
       </section>
       <main className="wrap layout">
