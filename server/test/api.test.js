@@ -1136,17 +1136,6 @@ describe('search pages', () => {
     assert.equal((await client()('/api/listings?page=abc')).data.page, 1);
   });
 
-  it('maps the ads closest to SDU whatever page and order the list shows', async () => {
-    for (let i = 0; i < 25; i += 1) await addListing({ lat: 43.25, lon: 76.75 });
-    const near = await addListing({ lat: 43.2075, lon: 76.6705 });
-    await addListing({ lat: null, lon: null });
-    const { items, mapItems } = (await client()('/api/listings')).data;
-    assert.equal(items[0].point, null);
-    assert.equal(mapItems.length, 20);
-    assert.equal(mapItems[0].id, near);
-    assert.ok(mapItems.every((item) => item.point));
-  });
-
   it('shows the newest ads first unless another order is asked for', async () => {
     const near = await addListing({ lat: 43.2072, lon: 76.6697 });
     const far = await addListing({ lat: 43.2379, lon: 76.7628 });

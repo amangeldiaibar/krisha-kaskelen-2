@@ -329,8 +329,6 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
     res.json({
       sdu: { lat: SDU.lat, lon: SDU.lon },
       items: items.slice((page - 1) * SEARCH_PAGE_SIZE, page * SEARCH_PAGE_SIZE),
-      // The map shows the ads closest to SDU whatever the list order, so the campus area is never empty.
-      mapItems: items.filter((item) => item.point).sort(SORTERS.distance).slice(0, SEARCH_PAGE_SIZE),
       total: items.length,
       page,
       pages,
