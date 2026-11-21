@@ -495,6 +495,7 @@ export function ListingCard({ item, index = 0, onFavoriteChange, onHover, onRemo
           {item.rooms === 0 && <span className="tag">{t('studio')}</span>}
           {item.floor && <span className="tag">{t('floorTag', { n: item.floor })}</span>}
           {item.year && <span className="tag">{t('builtTag', { n: item.year })}</span>}
+          {item.roommateCount > 0 && <span className="tag roommates-tag">👥 {t('roommatesTag', { n: item.roommateCount })}</span>}
         </div>
         <div className="card-foot">
           <SourceBadge source={item.source} />

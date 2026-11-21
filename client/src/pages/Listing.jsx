@@ -290,6 +290,96 @@ function Reviews({ listing }) {
   );
 }
 
+const ROOMMATE_NOTE_MAX = 300;
+
+/** People who want to rent this flat together with someone. Anyone can join the list, and others write to them. */
+function Roommates({ item }) {
+  const { user } = useAuth();
+  const { t, tError, path, lang } = useI18n();
+  const toast = useToast();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { data, reload } = useFetch(`/listings/${item.id}/roommates`);
+  const [editing, setEditing] = useState(false);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const mine = data?.items.find((person) => person.isMe);
+  const others = data?.items.filter((person) => !person.isMe) ?? [];
+  const login = () => navigate(path('/login'), { state: { from: location.pathname } });
+
+  async function act(request, message) {
+    setBusy(true);
+    try {
+      await request();
+      if (message) toast(t(message));
+      setEditing(false);
+      reload();
+    } catch (failure) {
+      toast(tError(failure), 'bad');
+    } finally {
+      setBusy(false);
+    }
+  }
+  const save = (event) => {
+    event.preventDefault();
+    act(() => api(`/listings/${item.id}/roommates`, { method: 'PUT', body: { note } }), 'toastRoommateSaved');
+  };
+  const leave = () => act(() => api(`/listings/${item.id}/roommates`, { method: 'DELETE' }), 'toastRoommateLeft');
+  const write = (person) =>
+    act(async () => {
+      const { id } = await api(`/listings/${item.id}/roommates/${person.userId}/conversation`, { method: 'POST' });
+      navigate(path(`/chats/${id}`));
+    });
+  const startEditing = () => {
+    if (!user) return login();
+    setNote(mine?.note ?? '');
+    setEditing(true);
+  };
+
+  return (
+    <section className="panel roommates">
+      <h2>{t('roommatesTitle')}{data?.items.length > 0 && <span className="badge">{data.items.length}</span>}</h2>
+      <p className="meta">{t('roommatesHelp')}</p>
+      {others.length > 0 && (
+        <ul className="roommate-list">
+          {others.map((person) => (
+            <li key={person.userId} className="roommate">
+              {person.avatar ? <img className="roommate-avatar" src={person.avatar} alt="" /> : <span className="roommate-avatar" aria-hidden="true">{person.name.trim().charAt(0).toUpperCase()}</span>}
+              <div className="roommate-body">
+                <b>{person.name}</b>
+                {person.note && <p className="prose">{person.note}</p>}
+                <span className="meta">{new Date(person.createdAt).toLocaleDateString(lang === 'en' ? 'en-GB' : lang === 'kk' ? 'kk-KZ' : 'ru-RU', { day: 'numeric', month: 'long' })}</span>
+              </div>
+              <button className="btn small" type="button" disabled={busy} onClick={() => (user ? write(person) : login())}>{t('roommateWrite')}</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {editing ? (
+        <form className="stack" onSubmit={save}>
+          <label>{t('roommateNote')}
+            <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder={t('roommateNotePh')} maxLength={ROOMMATE_NOTE_MAX} />
+          </label>
+          <div className="actions">
+            <button className="btn" type="submit" disabled={busy}>{mine ? t('save') : t('roommateJoin')}</button>
+            <button className="btn ghost" type="button" onClick={() => setEditing(false)}>{t('deleteCancel')}</button>
+          </div>
+        </form>
+      ) : mine ? (
+        <div className="roommate-mine">
+          <p><b>{t('roommateYouListed')}</b>{mine.note && <span className="meta"> · {mine.note}</span>}</p>
+          <div className="actions">
+            <button className="btn ghost small" type="button" onClick={startEditing}>{t('edit')}</button>
+            <button className="btn ghost small" type="button" disabled={busy} onClick={leave}>{t('roommateLeave')}</button>
+          </div>
+        </div>
+      ) : (
+        <button className="btn full" type="button" onClick={startEditing}>👥 {t('roommateLooking')}</button>
+      )}
+    </section>
+  );
+}
+
 const REPORT_REASONS = ['fraud', 'wrong_info', 'unavailable', 'duplicate', 'offensive', 'other'];
 
 /** Lets a visitor flag an ad for the admins. Guests are sent to log in first. */
@@ -484,6 +574,7 @@ export default function Listing() {
             </div>
           </section>
           <ContactPanel item={item} />
+          {item.deal === 'rent' && item.dealStatus === 'available' && !item.isOwner && (!item.status || item.status === 'approved') && <Roommates item={item} />}
           {!item.isOwner && <p className="report-line"><ReportButton item={item} /></p>}
         </aside>
       </div>

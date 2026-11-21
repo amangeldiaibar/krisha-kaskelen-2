@@ -5,6 +5,7 @@ import { AuthProvider, CompareProvider, ToastProvider } from './context.jsx';
 import Home from './pages/Home.jsx';
 import Compare from './pages/Compare.jsx';
 import Admin from './pages/Admin.jsx';
+import Listing from './pages/Listing.jsx';
 import { pageNumbers } from './components/Shared.jsx';
 
 const item = (over) => ({
@@ -103,6 +104,33 @@ describe('search pages', () => {
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/ru?deal=rent&page=2'));
     await waitFor(() => expect(calls.some((call) => call.path === '/listings?deal=rent&page=2')).toBe(true));
     await waitFor(() => expect(screen.getByRole('button', { name: '2' }).getAttribute('aria-current')).toBe('page'));
+  });
+});
+
+describe('flatmates', () => {
+  it('adds the visitor to the list with a note and opens a chat with someone else on it', async () => {
+    let list = [{ userId: 9, name: 'Аружан', avatar: null, note: 'Ищу соседку, 2 курс', createdAt: '2026-11-21T10:00:00Z', isMe: false }];
+    const calls = mockApi({
+      '/auth/me': { user: { id: 1, name: 'Dias', role: 'user' } },
+      '/listings/5/roommates/9/conversation': { id: 77 },
+      '/listings/5/roommates': () => ({ items: list, mine: list.some((person) => person.isMe) }),
+      '/listings/5/reviews': { app: [], external: { status: 'unavailable', rating: null, count: 0, reviews: [] }, canReview: false },
+      '/listings/5': { sdu: { lat: 43.2, lon: 76.6 }, item: item({ id: 5, roommateCount: 1, alsoPublished: [] }) },
+    });
+    show('/ru/listing/5', <Listing />, '/:lang/listing/:id');
+    expect(await screen.findByText('Ищу соседку, 2 курс')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /Ищу соседей/ }));
+    fireEvent.change(screen.getByLabelText(/Пару слов о себе/), { target: { value: 'Не курю' } });
+    list = [{ userId: 1, name: 'Dias', avatar: null, note: 'Не курю', createdAt: '2026-11-21T11:00:00Z', isMe: true }, ...list];
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить меня в список' }));
+    await waitFor(() => expect(calls.find((call) => call.path === '/listings/5/roommates' && call.method === 'PUT')?.body).toEqual({ note: 'Не курю' }));
+    expect(await screen.findByText('Вы в списке')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Написать' }));
+    // The chat page is another route, so the page leaves this one.
+    await waitFor(() => expect(calls.some((call) => call.path === '/listings/5/roommates/9/conversation' && call.method === 'POST')).toBe(true));
+    await waitFor(() => expect(screen.queryByText('Ищут соседей')).toBeNull());
   });
 });
 

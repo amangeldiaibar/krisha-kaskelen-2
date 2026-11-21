@@ -128,7 +128,7 @@ function ChatsBody() {
       {data?.items.map((item) => (
         <Link className="linkrow" key={item.id} to={path(`/chats/${item.id}`)}>
           <b>{item.title}</b>
-          <div className="meta">{item.otherName}{item.lastMessage ? ` · ${item.lastMessage}` : ''}</div>
+          <div className="meta">{item.otherName}{item.flatmate ? ` · ${t('flatmateChat')}` : ''}{item.lastMessage ? ` · ${item.lastMessage}` : ''}</div>
         </Link>
       ))}
     </section>

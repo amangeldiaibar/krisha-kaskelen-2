@@ -122,10 +122,11 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
 
   async function present(row, userId, includeModeration = false) {
     const point = row.lat !== null && row.lon !== null ? { lat: row.lat, lon: row.lon } : null;
-    const [photos, myRequest, favorite] = await Promise.all([
+    const [photos, myRequest, favorite, roommates] = await Promise.all([
       photosOf(row.id),
       userId ? db.get('SELECT id, status FROM deal_requests WHERE listing_id = $1 AND requester_id = $2 ORDER BY id DESC LIMIT 1', [row.id, userId]) : null,
       userId ? db.get('SELECT 1 FROM favorites WHERE user_id = $1 AND listing_id = $2', [userId, row.id]) : null,
+      db.get('SELECT COUNT(*)::int AS n FROM roommates WHERE listing_id = $1', [row.id]),
     ]);
     return {
       id: row.id,
@@ -152,6 +153,7 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
       canRequest: Boolean(row.user_id && row.user_id !== userId && row.deal_status === 'available' && row.status === 'approved'),
       myRequest: myRequest ?? null,
       isFavorite: Boolean(favorite),
+      roommateCount: roommates.n,
       duplicateOf: row.duplicate_of ?? null,
       ...(includeModeration ? { status: row.status, moderationReason: row.moderation_reason } : {}),
     };
@@ -554,12 +556,12 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
     (await tx.get('INSERT INTO messages (conversation_id, sender_id, text) VALUES ($1, $2, $3) RETURNING id', [conversationId, senderId, text])).id;
 
   async function announceMessage(conversationId) {
-    const { renter_id: renterId, owner_id: ownerId } = await db.get(
-      `SELECT conversations.renter_id, listings.user_id AS owner_id FROM conversations
+    const { renter_id: renterId, other_id: otherId } = await db.get(
+      `SELECT conversations.renter_id, coalesce(conversations.peer_id, listings.user_id) AS other_id FROM conversations
        JOIN listings ON listings.id = conversations.listing_id WHERE conversations.id = $1`,
       [conversationId],
     );
-    for (const userId of new Set([renterId, ownerId])) {
+    for (const userId of new Set([renterId, otherId])) {
       for (const stream of streams.get(userId) ?? []) stream.write(`data: ${JSON.stringify({ type: 'message', conversationId })}\n\n`);
     }
   }
@@ -567,7 +569,7 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
   // Rent and purchase requests
   const openConversation = async (tx, listingId, renterId) => {
     await tx.run('INSERT INTO conversations (listing_id, renter_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [listingId, renterId]);
-    return (await tx.get('SELECT id FROM conversations WHERE listing_id = $1 AND renter_id = $2', [listingId, renterId])).id;
+    return (await tx.get('SELECT id FROM conversations WHERE listing_id = $1 AND renter_id = $2 AND peer_id IS NULL', [listingId, renterId])).id;
   };
 
   app.post('/api/listings/:id/requests', requireUser, async (req, res) => {
@@ -691,11 +693,12 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
   // Chat
   const conversationFor = async (id, userId) => {
     const row = await db.get(
-      `SELECT conversations.*, listings.title, listings.user_id AS owner_id FROM conversations
+      `SELECT conversations.*, listings.title, coalesce(conversations.peer_id, listings.user_id) AS other_id FROM conversations
        JOIN listings ON listings.id = conversations.listing_id WHERE conversations.id = $1`,
       [idParam(id)],
     );
-    if (!row || (row.renter_id !== userId && row.owner_id !== userId)) throw new HttpError(404, 'not_found');
+    // The other side is the ad's owner, or the future flatmate in a flatmate chat.
+    if (!row || (row.renter_id !== userId && row.other_id !== userId)) throw new HttpError(404, 'not_found');
     return row;
   };
 
@@ -708,19 +711,19 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
 
   app.get('/api/conversations', requireUser, async (req, res) => {
     const rows = await db.all(
-      `SELECT conversations.id, listings.id AS listing_id, listings.title,
-         CASE WHEN conversations.renter_id = $1 THEN owner.name ELSE renter.name END AS other_name,
+      `SELECT conversations.id, listings.id AS listing_id, listings.title, conversations.peer_id IS NOT NULL AS flatmate,
+         CASE WHEN conversations.renter_id = $1 THEN other.name ELSE renter.name END AS other_name,
          (SELECT text FROM messages WHERE conversation_id = conversations.id ORDER BY id DESC LIMIT 1) AS last_message
        FROM conversations
        JOIN listings ON listings.id = conversations.listing_id
        JOIN users renter ON renter.id = conversations.renter_id
-       JOIN users owner ON owner.id = listings.user_id
-       WHERE conversations.renter_id = $1 OR listings.user_id = $1
+       JOIN users other ON other.id = coalesce(conversations.peer_id, listings.user_id)
+       WHERE conversations.renter_id = $1 OR coalesce(conversations.peer_id, listings.user_id) = $1
        ORDER BY conversations.id DESC`,
       [req.user.id],
     );
     res.json({
-      items: rows.map((row) => ({ id: row.id, listingId: row.listing_id, title: row.title, otherName: row.other_name, lastMessage: row.last_message })),
+      items: rows.map((row) => ({ id: row.id, listingId: row.listing_id, title: row.title, otherName: row.other_name, lastMessage: row.last_message, flatmate: row.flatmate })),
     });
   });
 
@@ -741,6 +744,68 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
     const id = await addMessage(db, conversation.id, req.user.id, text);
     await announceMessage(conversation.id);
     res.status(201).json({ id, text, isMine: true });
+  });
+
+  // Flatmates: people who want to rent this flat together with someone.
+  const ROOMMATE_NOTE_MAX = 300;
+  const roommateListing = async (id, user) => {
+    const listing = await findVisible(id, user);
+    if (listing.status !== 'approved' || listing.deal !== 'rent' || listing.deal_status !== 'available') throw new HttpError(409, 'roommates_unavailable');
+    return listing;
+  };
+
+  app.get('/api/listings/:id/roommates', async (req, res) => {
+    const listing = await findVisible(req.params.id, req.user);
+    const rows = await db.all(
+      `SELECT roommates.user_id, roommates.note, roommates.created_at, users.name,
+         CASE WHEN users.avatar IS NULL THEN NULL ELSE '/uploads/' || users.avatar END AS avatar
+       FROM roommates JOIN users ON users.id = roommates.user_id
+       WHERE roommates.listing_id = $1 AND users.blocked_at IS NULL ORDER BY roommates.created_at DESC`,
+      [listing.id],
+    );
+    res.json({
+      items: rows.map((row) => ({ userId: row.user_id, name: row.name, avatar: row.avatar, note: row.note, createdAt: row.created_at, isMe: row.user_id === req.user?.id })),
+      mine: rows.some((row) => row.user_id === req.user?.id),
+    });
+  });
+
+  app.put('/api/listings/:id/roommates', requireUser, async (req, res) => {
+    const listing = await roommateListing(req.params.id, req.user);
+    if (listing.user_id === req.user.id) throw new HttpError(403, 'own_listing_roommates');
+    const note = String(req.body?.note ?? '').trim();
+    if (note.length > ROOMMATE_NOTE_MAX) throw fieldError('note');
+    await db.run(
+      `INSERT INTO roommates (listing_id, user_id, note) VALUES ($1, $2, $3)
+       ON CONFLICT (listing_id, user_id) DO UPDATE SET note = excluded.note`,
+      [listing.id, req.user.id, note || null],
+    );
+    res.json({ mine: true, note: note || null });
+  });
+
+  app.delete('/api/listings/:id/roommates', requireUser, async (req, res) => {
+    await db.run('DELETE FROM roommates WHERE listing_id = $1 AND user_id = $2', [idParam(req.params.id), req.user.id]);
+    res.status(204).end();
+  });
+
+  // Opens a chat with someone looking for a flatmate. The same pair keeps one chat per flat, whoever wrote first.
+  app.post('/api/listings/:id/roommates/:userId/conversation', requireUser, async (req, res) => {
+    const listing = await findVisible(req.params.id, req.user);
+    const peerId = idParam(req.params.userId);
+    if (peerId === req.user.id) throw new HttpError(403, 'own_roommate_chat');
+    const listed = await db.get(
+      'SELECT 1 FROM roommates JOIN users ON users.id = roommates.user_id WHERE listing_id = $1 AND user_id = $2 AND users.blocked_at IS NULL',
+      [listing.id, peerId],
+    );
+    if (!listed) throw new HttpError(404, 'not_found');
+    const id = await db.transaction(async (tx) => {
+      const existing = await tx.get(
+        `SELECT id FROM conversations WHERE listing_id = $1 AND ((renter_id = $2 AND peer_id = $3) OR (renter_id = $3 AND peer_id = $2))`,
+        [listing.id, req.user.id, peerId],
+      );
+      if (existing) return existing.id;
+      return (await tx.get('INSERT INTO conversations (listing_id, renter_id, peer_id) VALUES ($1, $2, $3) RETURNING id', [listing.id, req.user.id, peerId])).id;
+    });
+    res.status(201).json({ id });
   });
 
   // Map tiles. The browser asks this server, so it never sees the 2GIS key.

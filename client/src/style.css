@@ -741,3 +741,16 @@ legend { font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
   .compare-bar { bottom: 10px; gap: 8px; }
   .comparepage, .adminpage { padding-inline: 16px; }
 }
+
+/* Flatmates */
+.roommates h2 { display: flex; align-items: center; gap: 4px; }
+.roommates > .meta { margin: 4px 0 12px; }
+.roommate-list { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 10px; }
+.roommate { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 10px; border: 1px solid var(--line); border-radius: var(--r); animation: rise 0.35s ease-out both; }
+.roommate-avatar { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #e4eef3; color: var(--brand); font-weight: 800; }
+.roommate-body { display: grid; gap: 2px; min-width: 0; }
+.roommate-body .prose { font-size: 0.92rem; overflow-wrap: anywhere; }
+.roommate-mine { display: grid; gap: 8px; padding: 10px 12px; border-radius: var(--r); background: #eef6f9; }
+.roommate-mine .meta { overflow-wrap: anywhere; }
+.roommates textarea { min-height: 80px; }
+.roommates-tag { background: #eef6f9; border-color: #cfe2ea; color: var(--brand); }

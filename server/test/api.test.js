@@ -1271,3 +1271,61 @@ describe('service area: Kaskelen and the villages towards Almaty', () => {
     assert.equal(toListing({ ...fields, locality: 'Каскелен' }, 't', { username: 'x', messageId: 1 }).address, 'Жибек жолы 5');
   });
 });
+
+describe('flatmates', () => {
+  const idOf = async (call) => (await call('/api/auth/me')).data.user.id;
+
+  it('lets people mark a rental as wanting flatmates, update the note and leave', async () => {
+    const id = await addListing({ source_type: 'import', user_id: null });
+    const aruzhan = await newUser();
+    assert.equal((await client()(`/api/listings/${id}/roommates`, { method: 'PUT', json: {} })).status, 401);
+    assert.equal((await aruzhan(`/api/listings/${id}/roommates`, { method: 'PUT', json: { note: 'Учусь в SDU, не курю' } })).status, 200);
+    await aruzhan(`/api/listings/${id}/roommates`, { method: 'PUT', json: { note: 'Учусь в SDU, бюджет до 60 000' } });
+
+    const seen = (await client()(`/api/listings/${id}/roommates`)).data;
+    assert.equal(seen.items.length, 1);
+    assert.equal(seen.items[0].note, 'Учусь в SDU, бюджет до 60 000');
+    assert.equal(seen.mine, false);
+    assert.equal((await aruzhan(`/api/listings/${id}/roommates`)).data.mine, true);
+    assert.equal((await client()(`/api/listings/${id}`)).data.item.roommateCount, 1);
+    assert.equal((await aruzhan(`/api/listings/${id}/roommates`, { method: 'PUT', json: { note: 'x'.repeat(301) } })).data.field, 'note');
+
+    assert.equal((await aruzhan(`/api/listings/${id}/roommates`, { method: 'DELETE' })).status, 204);
+    assert.equal((await client()(`/api/listings/${id}/roommates`)).data.items.length, 0);
+  });
+
+  it('is only for rentals that are open, and not for the ad\'s own owner', async () => {
+    const owner = await newUser();
+    const ownerId = await idOf(owner);
+    const own = await addListing({ source_type: 'app', user_id: ownerId });
+    const sale = await addListing({ deal: 'buy' });
+    assert.equal((await owner(`/api/listings/${own}/roommates`, { method: 'PUT', json: {} })).data.error, 'own_listing_roommates');
+    assert.equal((await owner(`/api/listings/${sale}/roommates`, { method: 'PUT', json: {} })).data.error, 'roommates_unavailable');
+  });
+
+  it('opens one chat per pair and flat, whoever writes first, and both see it', async () => {
+    const id = await addListing();
+    const aruzhan = await newUser();
+    const dias = await newUser();
+    const outsider = await newUser();
+    const aruzhanId = await idOf(aruzhan);
+    const diasId = await idOf(dias);
+    await aruzhan(`/api/listings/${id}/roommates`, { method: 'PUT', json: { note: 'Ищу соседку' } });
+
+    // Only people on the list can be written to, and not oneself.
+    assert.equal((await dias(`/api/listings/${id}/roommates/${await idOf(outsider)}/conversation`, { method: 'POST' })).status, 404);
+    assert.equal((await aruzhan(`/api/listings/${id}/roommates/${aruzhanId}/conversation`, { method: 'POST' })).data.error, 'own_roommate_chat');
+
+    const chat = (await dias(`/api/listings/${id}/roommates/${aruzhanId}/conversation`, { method: 'POST' })).data.id;
+    await dias(`/api/conversations/${chat}/messages`, { method: 'POST', json: { text: 'Привет! Тоже ищу, давай вместе' } });
+    await dias(`/api/listings/${id}/roommates`, { method: 'PUT', json: {} });
+    assert.equal((await aruzhan(`/api/listings/${id}/roommates/${diasId}/conversation`, { method: 'POST' })).data.id, chat);
+
+    const [inbox] = (await aruzhan('/api/conversations')).data.items;
+    assert.equal(inbox.id, chat);
+    assert.equal(inbox.flatmate, true);
+    assert.equal(inbox.lastMessage, 'Привет! Тоже ищу, давай вместе');
+    assert.equal((await aruzhan(`/api/conversations/${chat}/messages`)).data.items.length, 1);
+    assert.equal((await outsider(`/api/conversations/${chat}/messages`)).status, 404);
+  });
+});

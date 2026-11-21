@@ -111,6 +111,18 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_at timestamptz;
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS duplicate_of integer REFERENCES listings(id) ON DELETE SET NULL;
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS moderated_by integer REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS geocode_tried_at timestamptz;
+-- People who want to rent a flat together with someone mark it here, and others write to them.
+CREATE TABLE IF NOT EXISTS roommates (
+  listing_id integer NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+  user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  note text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (listing_id, user_id)
+);
+-- A chat with a future flatmate has a peer instead of the ad's owner.
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS peer_id integer REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE conversations DROP CONSTRAINT IF EXISTS conversations_listing_id_renter_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS one_conversation ON conversations(listing_id, renter_id, coalesce(peer_id, 0));
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS moderated_by integer REFERENCES users(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS listings_duplicate_of ON listings(duplicate_of);
 CREATE TABLE IF NOT EXISTS reports (
@@ -145,7 +157,7 @@ CREATE TABLE IF NOT EXISTS admin_log (
 `;
 
 /** Tables in an order that respects foreign keys. */
-export const TABLES = ['users', 'sessions', 'listings', 'photos', 'reviews', 'favorites', 'conversations', 'messages', 'deal_requests', 'dgis_cache', 'reports', 'duplicate_dismissals', 'admin_log'];
+export const TABLES = ['users', 'sessions', 'listings', 'photos', 'reviews', 'favorites', 'conversations', 'messages', 'deal_requests', 'dgis_cache', 'reports', 'duplicate_dismissals', 'admin_log', 'roommates'];
 
 export const isUniqueViolation = (error) => error?.code === '23505';
 
