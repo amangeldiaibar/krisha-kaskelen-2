@@ -623,9 +623,6 @@ button.ph { border: 0; padding: 0; cursor: zoom-in; font: inherit; color: inheri
 .smart-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .smart-row input { padding: 12px 14px; font-size: 1rem; border: 0; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18); }
 .smart-row .btn { padding-inline: 22px; }
-.smart-examples { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.82rem; opacity: 0.95; }
-.chip-btn { border: 1px solid rgba(255, 255, 255, 0.4); background: rgba(255, 255, 255, 0.1); color: #fff; border-radius: 99px; padding: 3px 10px; font: inherit; cursor: pointer; transition: background 0.15s; }
-.chip-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.24); }
 .smart-message { background: rgba(255, 255, 255, 0.95); color: var(--ink); border-radius: 8px; padding: 8px 12px; font-size: 0.9rem; }
 .active-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .chip { display: inline-flex; gap: 6px; align-items: center; border: 1px solid #b9d3df; background: #e4eef3; color: var(--brand); border-radius: 99px; padding: 4px 10px; font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; }

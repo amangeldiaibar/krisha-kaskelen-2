@@ -78,12 +78,6 @@ function SmartSearch({ initial, onFilters }) {
         <input id="smart-query" type="search" value={query} maxLength={300} placeholder={t('smartPh')} onChange={(event) => setQuery(event.target.value)} />
         <button className="btn" type="submit" disabled={busy || query.trim().length < 2}>{busy ? '…' : t('smartGo')}</button>
       </div>
-      <div className="smart-examples">
-        <span>{t('smartExamples')}</span>
-        {['smartEx1', 'smartEx2', 'smartEx3'].map((key) => (
-          <button key={key} type="button" className="chip-btn" disabled={busy} onClick={() => run(t(key))}>{t(key)}</button>
-        ))}
-      </div>
       {message && <p className="smart-message" role="alert">{message}</p>}
     </form>
   );
