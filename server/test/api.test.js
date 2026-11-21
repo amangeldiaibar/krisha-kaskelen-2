@@ -845,6 +845,15 @@ describe('krisha.kz CSV import', () => {
     // 1001 was already on the site, so it keeps its approval and gets the new details.
     assert.deepEqual(types, ['app:null:pending', 'import:krisha.kz:approved', 'import:t.me/SDU_housing:approved', 'import:krisha.kz:pending']);
     assert.equal((await db.get(`SELECT title FROM listings WHERE source_url = 'https://krisha.kz/a/show/1001'`)).title, '2-комнатная квартира · 54 м² · 5/9 этаж');
+
+    // A later run that found the whole gallery adds the photos the ad does not have yet.
+    fs.mkdirSync(path.join(photosDir, '1001'));
+    fs.writeFileSync(path.join(photosDir, '1001', '0.png'), PNG);
+    fs.writeFileSync(path.join(photosDir, '1002', '3.png'), PNG);
+    const again = await importKrisha({ db, rows: parseCsv(csv), photosDir, uploadsDir: tmp, geocode: async () => null });
+    assert.deepEqual(again, { imported: 0, updated: 2, removed: 0, photos: 2 });
+    const counts = await db.all(`SELECT source_url, COUNT(photos.id)::int AS n FROM listings LEFT JOIN photos ON photos.listing_id = listings.id WHERE source_name = 'krisha.kz' GROUP BY source_url ORDER BY source_url`);
+    assert.deepEqual(counts.map((row) => row.n), [1, 3]);
     fs.rmSync(photosDir, { recursive: true, force: true });
   });
 

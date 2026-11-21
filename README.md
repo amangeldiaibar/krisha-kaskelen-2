@@ -95,7 +95,7 @@ The krisha.kz parser lives in [KrishaParser/](KrishaParser/), taken from [house-
 ```bash
 cd KrishaParser
 python -m krisha crawl --city kaskelen --max-pages 5
-python -m krisha photos
+python -m krisha photos --expand
 python -m krisha export
 cd .. && npm run import:krisha-parser
 ```

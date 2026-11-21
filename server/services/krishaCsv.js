@@ -175,10 +175,24 @@ export async function importKrisha({ db, rows, photosDir, uploadsDir, geocode })
   });
   for (const { filename } of oldFiles) fs.rmSync(path.join(uploadsDir, filename), { force: true });
 
+  // New ads get all their photos. Ads already on the site get the ones the parser found since,
+  // which happens when a later run collects the whole gallery instead of the cover only.
+  const targets = [
+    ...fresh.map((item, index) => ({ item, listingId: result.ids[index], have: 0 })),
+    ...(await Promise.all(
+      listings
+        .filter((item) => existing.has(item.sourceUrl))
+        .map(async (item) => {
+          const listingId = existing.get(item.sourceUrl);
+          const { n } = await db.get('SELECT COUNT(*)::int AS n FROM photos WHERE listing_id = $1', [listingId]);
+          return { item, listingId, have: n };
+        }),
+    )),
+  ];
   let photos = 0;
-  for (const [index, item] of fresh.entries()) {
-    const buffers = photoFiles(photosDir, item.krishaId).map((file) => fs.readFileSync(file));
-    photos += await addListingPhotos({ db, listingId: result.ids[index], buffers, uploadsDir });
+  for (const { item, listingId, have } of targets) {
+    const buffers = photoFiles(photosDir, item.krishaId).slice(have).map((file) => fs.readFileSync(file));
+    if (buffers.length) photos += await addListingPhotos({ db, listingId, buffers, uploadsDir });
   }
   return { imported: fresh.length, updated: listings.length - fresh.length, removed: result.removed, photos };
 }
