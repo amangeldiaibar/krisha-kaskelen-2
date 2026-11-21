@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth, useFetch, useI18n, usePolling, useToast } from '../context.jsx';
-import { AdminDeleteButton, CompareButton, DeleteListingButton, Distance, FavoriteButton, HouseArt, ListingsMap, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
+import { AdminDeleteButton, CompareButton, sourceName, DeleteListingButton, Distance, FavoriteButton, HouseArt, ListingsMap, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
 
 const PENDING_POLL_MS = 3000;
 
@@ -188,7 +188,7 @@ function DealPanel({ item, onChanged }) {
     );
   }
   if (item.source.type === 'import') {
-    return <a className="btn full" href={item.source.url} target="_blank" rel="noopener noreferrer nofollow">{t('openOnSource', { name: item.source.name })}</a>;
+    return <a className="btn full" href={item.source.url} target="_blank" rel="noopener noreferrer nofollow">{t('openOnSource', { name: sourceName(item.source) })}</a>;
   }
   if (item.isOwner) {
     return <Link className="btn ghost full" to={path('/requests')}>{t('requests')}</Link>;
@@ -443,7 +443,7 @@ export default function Listing() {
                   <span key={copy.id}>
                     {index > 0 && ', '}
                     {copy.source.url
-                      ? <a className="link" href={copy.source.url} target="_blank" rel="noopener noreferrer nofollow">{copy.source.name}</a>
+                      ? <a className="link" href={copy.source.url} target="_blank" rel="noopener noreferrer nofollow">{sourceName(copy.source)}</a>
                       : <Link className="link" to={path(`/listing/${copy.id}`)}>{t('sourceApp')}</Link>}
                   </span>
                 ))}

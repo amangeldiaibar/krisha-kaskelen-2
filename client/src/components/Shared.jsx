@@ -270,9 +270,12 @@ export function Status({ loading, error, onRetry }) {
 
 export const formatPrice = (value) => (value === null || value === undefined ? '' : `${String(value).replace(/\B(?=(\d{3})+$)/g, ' ')} ₸`);
 
+/** Telegram channels are shown simply as "Telegram"; other sites by their name. */
+export const sourceName = (source) => (/^t\.me\//i.test(source.name ?? '') ? 'Telegram' : source.name);
+
 export function SourceBadge({ source }) {
   const { t } = useI18n();
-  if (source.type === 'import') return <span className="source import">{t('sourceImport', { name: source.name })}</span>;
+  if (source.type === 'import') return <span className="source import">{t('sourceImport', { name: sourceName(source) })}</span>;
   return <span className="source">{t(source.type === 'test' ? 'sourceTest' : 'sourceApp')}</span>;
 }
 
@@ -432,7 +435,7 @@ export function DealCardButton({ item }) {
   const { t, path } = useI18n();
   if (item.dealStatus === 'closed') return <span className="status rejected">{t(`closed_${item.deal}`)}</span>;
   if (item.source.type === 'import') {
-    return <a className="btn small" href={item.source.url} target="_blank" rel="noopener noreferrer nofollow">{t('openOnSource', { name: item.source.name })}</a>;
+    return <a className="btn small" href={item.source.url} target="_blank" rel="noopener noreferrer nofollow" title={t('openOnSource', { name: sourceName(item.source) })}>{t('openShort')}</a>;
   }
   if (item.isOwner) return null;
   return <Link className="btn small" to={path(`/listing/${item.id}?deal=1`)}>{t(item.deal === 'rent' ? 'dealRentBtn' : 'dealBuyBtn')}</Link>;

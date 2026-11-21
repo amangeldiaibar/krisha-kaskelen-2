@@ -160,6 +160,15 @@ describe('admin panel', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Удалить' })).toBeNull());
   });
 
+  it('names Telegram channels simply as Telegram and keeps the open button short', async () => {
+    mockApi({ '/auth/me': { user: null }, '/listings': { sdu: { lat: 43.2, lon: 76.6 }, items: [item({ id: 5 })] } });
+    show('/ru', <Home />, '/:lang');
+    expect(await screen.findByText('Источник: Telegram')).toBeTruthy();
+    const open = screen.getByRole('link', { name: 'Открыть' });
+    expect(open.getAttribute('href')).toBe('https://t.me/x/1');
+    expect(open.getAttribute('title')).toBe('Открыть на Telegram');
+  });
+
   it('does not show the delete button to ordinary visitors', async () => {
     mockApi({ '/auth/me': { user: null }, '/listings': { sdu: { lat: 43.2, lon: 76.6 }, items: [item({ id: 5 })] } });
     show('/ru', <Home />, '/:lang');
