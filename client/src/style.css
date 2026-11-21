@@ -754,3 +754,15 @@ legend { font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
 .roommate-mine .meta { overflow-wrap: anywhere; }
 .roommates textarea { min-height: 80px; }
 .roommates-tag { background: #eef6f9; border-color: #cfe2ea; color: var(--brand); }
+
+/* Support */
+.tickets { display: grid; gap: 10px; margin-top: 8px; }
+.ticket { display: grid; gap: 8px; }
+.tickets .ticket { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r); }
+.ticket-head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.ticket .prose { overflow-wrap: anywhere; white-space: pre-line; }
+.ticket-open { background: #fff4d6; color: #7a5600; }
+.ticket-answered { background: #e3f1ea; color: #1d6b45; }
+.ticket-closed { background: #eceff1; color: var(--muted); }
+.ticket-reply { display: grid; gap: 4px; padding: 10px 12px; border-left: 3px solid var(--brand); border-radius: 0 var(--r) var(--r) 0; background: #eef6f9; }
+.ticket textarea { min-height: 90px; }

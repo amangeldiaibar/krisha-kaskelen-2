@@ -1336,3 +1336,37 @@ describe('flatmates', () => {
     assert.equal((await outsider(`/api/conversations/${chat}/messages`)).status, 404);
   });
 });
+
+describe('support', () => {
+  it('lets a person write to the admins and see the answer', async () => {
+    assert.equal((await client()('/api/support', { method: 'POST', json: { topic: 'question', text: 'Как добавить фото?' } })).status, 401);
+    const person = await newUser();
+    assert.equal((await person('/api/support', { method: 'POST', json: { topic: 'nonsense', text: 'Как добавить фото к объявлению?' } })).data.field, 'topic');
+    assert.equal((await person('/api/support', { method: 'POST', json: { topic: 'question', text: 'Привет' } })).data.field, 'text');
+    const { item } = (await person('/api/support', { method: 'POST', json: { topic: 'question', text: 'Как добавить фото к объявлению?' } })).data;
+    assert.equal(item.status, 'open');
+
+    const admin = await newAdmin();
+    assert.equal((await admin('/api/admin/overview')).data.openTickets, 1);
+    const [ticket] = (await admin('/api/admin/support?status=open')).data.items;
+    assert.equal(ticket.author.name, 'Имя Фамилия');
+    assert.equal((await person(`/api/admin/support/${ticket.id}`, { method: 'POST', json: { reply: 'x' } })).status, 403);
+    assert.equal((await admin(`/api/admin/support/${ticket.id}`, { method: 'POST', json: { reply: '' } })).data.field, 'reply');
+    assert.equal((await admin(`/api/admin/support/${ticket.id}`, { method: 'POST', json: { reply: 'Откройте объявление и нажмите «Редактировать».' } })).data.status, 'answered');
+
+    const [mine] = (await person('/api/support')).data.items;
+    assert.equal(mine.status, 'answered');
+    assert.equal(mine.reply, 'Откройте объявление и нажмите «Редактировать».');
+    // Others never see someone else's messages.
+    assert.equal((await (await newUser())('/api/support')).data.items.length, 0);
+  });
+
+  it('lets an admin close a message without answering, and limits messages per day', async () => {
+    const person = await newUser();
+    const admin = await newAdmin();
+    const { item } = (await person('/api/support', { method: 'POST', json: { topic: 'idea', text: 'Добавьте тёмную тему, пожалуйста' } })).data;
+    assert.equal((await admin(`/api/admin/support/${item.id}`, { method: 'POST', json: { close: true } })).data.status, 'closed');
+    for (let i = 0; i < 9; i += 1) await person('/api/support', { method: 'POST', json: { topic: 'other', text: `Сообщение номер ${i}` } });
+    assert.equal((await person('/api/support', { method: 'POST', json: { topic: 'other', text: 'Ещё одно сообщение' } })).status, 429);
+  });
+});

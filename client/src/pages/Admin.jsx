@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth, useFetch, useI18n, useToast } from '../context.jsx';
+import { SUPPORT_TOPICS } from './Support.jsx';
 import { AdminDeleteButton, HouseArt, RequireLogin, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
 
-const TABS = ['overview', 'listings', 'duplicates', 'reports', 'reviews', 'users', 'log'];
+const TABS = ['overview', 'listings', 'duplicates', 'reports', 'reviews', 'support', 'users', 'log'];
 const LOCALES = { ru: 'ru-RU', kk: 'kk-KZ', en: 'en-GB' };
 
 function useDate() {
@@ -88,6 +89,7 @@ function Overview({ data, onOpen }) {
     ['ov_reports', data.openReports, () => onOpen('reports'), data.openReports > 0],
     ['ov_duplicates', data.duplicatePairs, () => onOpen('duplicates'), data.duplicatePairs > 0],
     ['ov_reviews', data.pendingReviews, () => onOpen('reviews', { status: 'pending' }), data.pendingReviews > 0],
+    ['ov_tickets', data.openTickets, () => onOpen('support'), data.openTickets > 0],
     ['ov_live', data.liveListings, () => onOpen('listings', { status: 'approved' })],
     ['ov_rejected', data.rejectedListings, () => onOpen('listings', { status: 'rejected' })],
     ['ov_users', data.users, () => onOpen('users')],
@@ -347,6 +349,61 @@ function ReviewsTab({ params, setFilter }) {
   );
 }
 
+/** Messages from the support page. An answer is shown to the author there. */
+function SupportTab({ params, setFilter }) {
+  const { t } = useI18n();
+  const date = useDate();
+  const status = params.status || 'open';
+  const { data, loading, error, reload } = useFetch(`/admin/support?status=${status}`);
+  return (
+    <>
+      <div className="seg" role="group">
+        {['open', 'answered', 'closed'].map((value) => (
+          <button key={value} type="button" className={value === status ? 'on' : undefined} aria-pressed={value === status} onClick={() => setFilter({ status: value })}>{t(`ticket_${value}`)}</button>
+        ))}
+      </div>
+      {loading && !data && <SkeletonCards count={1} />}
+      <Status error={error} onRetry={reload} />
+      {data?.items.length === 0 && <p className="state">{t('noItems')}</p>}
+      {data?.items.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} date={date} onDone={reload} />)}
+    </>
+  );
+}
+
+function TicketCard({ ticket, date, onDone }) {
+  const { t } = useI18n();
+  const [reply, setReply] = useState('');
+  const { run, busy } = useAction(onDone);
+  return (
+    <article className="panel ticket">
+      <div className="ticket-head">
+        <b>{SUPPORT_TOPICS.includes(ticket.topic) ? t(`topic_${ticket.topic}`) : ticket.topic}</b>
+        <span className={`status ticket-${ticket.status}`}>{t(`ticket_${ticket.status}`)}</span>
+        <span className="meta">{date(ticket.createdAt)}</span>
+      </div>
+      <p className="meta">{ticket.author.name} · {ticket.author.email} · {ticket.author.phone}</p>
+      <p className="prose">{ticket.text}</p>
+      {ticket.reply && (
+        <div className="ticket-reply">
+          <span className="meta">{t('supportAnsweredBy', { n: ticket.repliedBy ?? '—' })} · {date(ticket.repliedAt)}</span>
+          <p className="prose">{ticket.reply}</p>
+        </div>
+      )}
+      {ticket.status === 'open' && (
+        <form className="stack" onSubmit={(event) => { event.preventDefault(); run(`/admin/support/${ticket.id}`, { body: { reply } }); }}>
+          <label>{t('supportReply')}
+            <textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder={t('supportReplyPh')} required minLength={2} maxLength={3000} />
+          </label>
+          <div className="actions">
+            <button className="btn" type="submit" disabled={busy}>{t('supportReplySend')}</button>
+            <button className="btn ghost" type="button" disabled={busy} onClick={() => run(`/admin/support/${ticket.id}`, { body: { close: true } })}>{t('supportClose')}</button>
+          </div>
+        </form>
+      )}
+    </article>
+  );
+}
+
 function UsersTab({ params, setFilter }) {
   const { t } = useI18n();
   const date = useDate();
@@ -426,7 +483,7 @@ function AdminBody() {
     overview.reload();
   };
   const setFilter = (changes) => setSearch(Object.fromEntries(Object.entries({ ...params, tab, ...changes }).filter(([, value]) => value)));
-  const counts = overview.data ? { listings: overview.data.pendingListings, duplicates: overview.data.duplicatePairs, reports: overview.data.openReports, reviews: overview.data.pendingReviews } : {};
+  const counts = overview.data ? { listings: overview.data.pendingListings, duplicates: overview.data.duplicatePairs, reports: overview.data.openReports, reviews: overview.data.pendingReviews, support: overview.data.openTickets } : {};
 
   return (
     <>
@@ -442,6 +499,7 @@ function AdminBody() {
       {tab === 'duplicates' && <DuplicatesTab />}
       {tab === 'reports' && <ReportsTab params={params} setFilter={setFilter} />}
       {tab === 'reviews' && <ReviewsTab params={params} setFilter={setFilter} />}
+      {tab === 'support' && <SupportTab params={params} setFilter={setFilter} />}
       {tab === 'users' && <UsersTab key={params.q} params={params} setFilter={setFilter} />}
       {tab === 'log' && <LogTab />}
     </>

@@ -744,6 +744,27 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
     res.status(201).json({ id, text, isMine: true });
   });
 
+  // Support: a logged-in person writes to the admins and sees their answers here.
+  const SUPPORT_TOPICS = new Set(['question', 'listing', 'account', 'complaint', 'idea', 'other']);
+  const SUPPORT_PER_DAY = 10;
+  const presentTicket = (row) => ({ id: row.id, topic: row.topic, text: row.text, status: row.status, reply: row.reply, repliedAt: row.replied_at, createdAt: row.created_at });
+
+  app.get('/api/support', requireUser, async (req, res) => {
+    const rows = await db.all('SELECT * FROM support_tickets WHERE user_id = $1 ORDER BY id DESC', [req.user.id]);
+    res.json({ items: rows.map(presentTicket) });
+  });
+
+  app.post('/api/support', requireUser, async (req, res) => {
+    const topic = req.body?.topic;
+    if (!SUPPORT_TOPICS.has(topic)) throw fieldError('topic');
+    const text = String(req.body?.text ?? '').trim();
+    if (text.length < 10 || text.length > 3000) throw fieldError('text');
+    const { n } = await db.get(`SELECT COUNT(*)::int AS n FROM support_tickets WHERE user_id = $1 AND created_at > now() - interval '1 day'`, [req.user.id]);
+    if (n >= SUPPORT_PER_DAY) throw new HttpError(429, 'too_many_requests');
+    const row = await db.get('INSERT INTO support_tickets (user_id, topic, text) VALUES ($1, $2, $3) RETURNING *', [req.user.id, topic, text]);
+    res.status(201).json({ item: presentTicket(row) });
+  });
+
   // Flatmates: people who want to rent this flat together with someone.
   const ROOMMATE_NOTE_MAX = 300;
   const roommateListing = async (id, user) => {

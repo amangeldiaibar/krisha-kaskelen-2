@@ -120,6 +120,7 @@ export function registerAdminRoutes(app, { db, removeFiles, onContentChanged }) 
         (SELECT COUNT(*) FROM reviews WHERE status = 'pending') AS pending_reviews,
         (SELECT COUNT(*) FROM reviews WHERE status = 'rejected') AS rejected_reviews,
         (SELECT COUNT(*) FROM reports WHERE status = 'open') AS open_reports,
+        (SELECT COUNT(*) FROM support_tickets WHERE status = 'open') AS open_tickets,
         (SELECT COUNT(*) FROM users) AS users,
         (SELECT COUNT(*) FROM users WHERE blocked_at IS NOT NULL) AS blocked_users`),
       db.all(`SELECT CASE WHEN source_type = 'app' THEN 'app' WHEN source_type = 'test' THEN 'test'
@@ -134,6 +135,7 @@ export function registerAdminRoutes(app, { db, removeFiles, onContentChanged }) 
       pendingReviews: counts.pending_reviews,
       rejectedReviews: counts.rejected_reviews,
       openReports: counts.open_reports,
+      openTickets: counts.open_tickets,
       users: counts.users,
       blockedUsers: counts.blocked_users,
       duplicatePairs: pairs.length,
@@ -351,6 +353,53 @@ export function registerAdminRoutes(app, { db, removeFiles, onContentChanged }) 
     });
     onContentChanged();
     res.json({ blocked });
+  });
+
+  // Support messages from the support page
+  app.get('/api/admin/support', async (req, res) => {
+    const status = ['open', 'answered', 'closed'].includes(req.query.status) ? req.query.status : null;
+    const rows = await db.all(
+      `SELECT support_tickets.*, author.name AS author_name, author.email AS author_email, author.phone AS author_phone, admin.name AS admin_name
+       FROM support_tickets
+       JOIN users author ON author.id = support_tickets.user_id
+       LEFT JOIN users admin ON admin.id = support_tickets.replied_by
+       ${status ? 'WHERE support_tickets.status = $1' : ''}
+       ORDER BY support_tickets.status = 'open' DESC, support_tickets.id DESC LIMIT ${PAGE_SIZE}`,
+      status ? [status] : [],
+    );
+    res.json({
+      items: rows.map((row) => ({
+        id: row.id,
+        topic: row.topic,
+        text: row.text,
+        status: row.status,
+        reply: row.reply,
+        repliedBy: row.admin_name ?? null,
+        repliedAt: row.replied_at,
+        createdAt: row.created_at,
+        author: { id: row.user_id, name: row.author_name, email: row.author_email, phone: row.author_phone },
+      })),
+    });
+  });
+
+  // An answer is shown to the author on the support page. Closing without an answer is allowed too.
+  app.post('/api/admin/support/:id', async (req, res) => {
+    const row = await db.get('SELECT id FROM support_tickets WHERE id = $1', [idParam(req.params.id)]);
+    if (!row) throw new HttpError(404, 'not_found');
+    const reply = String(req.body?.reply ?? '').trim();
+    const close = req.body?.close === true;
+    if (!close && reply.length < 2) throw fieldError('reply');
+    if (reply.length > 3000) throw fieldError('reply');
+    const status = reply ? 'answered' : 'closed';
+    await db.transaction(async (tx) => {
+      if (reply) {
+        await tx.run(`UPDATE support_tickets SET status = $1, reply = $2, replied_by = $3, replied_at = now() WHERE id = $4`, [status, reply, req.user.id, row.id]);
+      } else {
+        await tx.run(`UPDATE support_tickets SET status = 'closed' WHERE id = $1`, [row.id]);
+      }
+      await log(tx, req.user.id, reply ? 'answer' : 'close', 'ticket', row.id);
+    });
+    res.json({ status });
   });
 
   app.get('/api/admin/log', async (_req, res) => {

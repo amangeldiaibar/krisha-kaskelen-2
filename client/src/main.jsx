@@ -10,6 +10,7 @@ import { Login, Register } from './pages/Auth.jsx';
 import { Chat, Chats, Favorites, MyListings, Requests, Settings } from './pages/Account.jsx';
 import Compare from './pages/Compare.jsx';
 import Admin from './pages/Admin.jsx';
+import Support from './pages/Support.jsx';
 import './style.css';
 
 createRoot(document.getElementById('root')).render(
@@ -35,6 +36,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="chats/:id" element={<Chat />} />
             <Route path="compare" element={<Compare />} />
             <Route path="admin" element={<Admin />} />
+            <Route path="support" element={<Support />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

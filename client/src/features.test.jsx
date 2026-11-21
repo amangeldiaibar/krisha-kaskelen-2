@@ -6,6 +6,7 @@ import Home from './pages/Home.jsx';
 import Compare from './pages/Compare.jsx';
 import Admin from './pages/Admin.jsx';
 import Listing from './pages/Listing.jsx';
+import Support from './pages/Support.jsx';
 import { pageNumbers } from './components/Shared.jsx';
 
 const item = (over) => ({
@@ -131,6 +132,39 @@ describe('flatmates', () => {
     // The chat page is another route, so the page leaves this one.
     await waitFor(() => expect(calls.some((call) => call.path === '/listings/5/roommates/9/conversation' && call.method === 'POST')).toBe(true));
     await waitFor(() => expect(screen.queryByText('Ищут соседей')).toBeNull());
+  });
+});
+
+describe('support', () => {
+  it('sends a message to the admins and shows their answer', async () => {
+    let items = [{ id: 1, topic: 'listing', text: 'В объявлении неверная цена', status: 'answered', reply: 'Спасибо, исправили.', repliedAt: '2026-11-21T12:00:00Z', createdAt: '2026-11-21T10:00:00Z' }];
+    const calls = mockApi({
+      '/auth/me': { user: { id: 1, name: 'Dias', role: 'user' } },
+      '/support': (path) => (path === '/support' ? { items } : {}),
+    });
+    show('/ru/support', <Support />, '/:lang/support');
+    expect(await screen.findByText('Спасибо, исправили.')).toBeTruthy();
+    expect(screen.getByText('Отвечено')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Тема'), { target: { value: 'idea' } });
+    fireEvent.change(screen.getByLabelText('Сообщение'), { target: { value: 'Добавьте тёмную тему, пожалуйста' } });
+    items = [{ id: 2, topic: 'idea', text: 'Добавьте тёмную тему, пожалуйста', status: 'open', reply: null, repliedAt: null, createdAt: '2026-11-21T13:00:00Z' }, ...items];
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить' }));
+    await waitFor(() => expect(calls.find((call) => call.method === 'POST')?.body).toEqual({ topic: 'idea', text: 'Добавьте тёмную тему, пожалуйста' }));
+    expect(await screen.findByText('Ждёт ответа')).toBeTruthy();
+  });
+
+  it('lets an admin answer a message', async () => {
+    const calls = mockApi({
+      '/auth/me': { user: { id: 1, name: 'Admin', role: 'admin' } },
+      '/admin/overview': { pendingListings: 0, rejectedListings: 0, liveListings: 3, pendingReviews: 0, rejectedReviews: 0, openReports: 0, openTickets: 1, users: 2, blockedUsers: 0, duplicatePairs: 0, sources: {} },
+      '/admin/support/4': { status: 'answered' },
+      '/admin/support': { items: [{ id: 4, topic: 'question', text: 'Как добавить фото?', status: 'open', reply: null, repliedBy: null, repliedAt: null, createdAt: '2026-11-21T10:00:00Z', author: { id: 2, name: 'Аружан', email: 'a@x.kz', phone: '+77001112244' } }] },
+    });
+    show('/ru/admin?tab=support', <Admin />, '/:lang/admin');
+    expect(await screen.findByText('Как добавить фото?')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Ваш ответ'), { target: { value: 'Нажмите «Редактировать».' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ответить' }));
+    await waitFor(() => expect(calls.find((call) => call.path === '/admin/support/4')?.body).toEqual({ reply: 'Нажмите «Редактировать».' }));
   });
 });
 

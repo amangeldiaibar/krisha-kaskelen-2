@@ -32,6 +32,8 @@ function LayoutBody() {
           <nav>
             <Link className={onHome && dealParam === 'rent' ? 'active' : undefined} to={path('?deal=rent')}>{t('rent')}</Link>
             <Link className={onHome && dealParam === 'buy' ? 'active' : undefined} to={path('?deal=buy')}>{t('buy')}</Link>
+            <NavLink to={path('/favorites')}>{t('favorites')}</NavLink>
+            <NavLink to={path('/support')}>{t('support')}</NavLink>
             <NavLink to={path('/post')}>{t('post')}</NavLink>
             {!user && (
               <>
