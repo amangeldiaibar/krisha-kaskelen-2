@@ -38,7 +38,7 @@ function LayoutBody() {
             {!user && (
               <>
                 <NavLink to={path('/login')}>{t('login')}</NavLink>
-                <NavLink to={path('/register')}>{t('signup')}</NavLink>
+                <NavLink className="nav-signup" to={path('/register')}>{t('signup')}</NavLink>
               </>
             )}
           </nav>

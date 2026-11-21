@@ -369,6 +369,10 @@ header .wrap {
 header nav {
   margin-left: auto;
 }
+header nav a.nav-signup {
+  color: var(--accent);
+  font-weight: 700;
+}
 .lang {
   display: flex;
   gap: 2px;
