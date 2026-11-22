@@ -374,10 +374,42 @@ header .wrap {
 }
 header nav {
   margin-left: auto;
+  align-items: center;
+}
+/* Log in and Sign up look like buttons, so they stand apart from the page links. */
+header nav a.nav-login,
+header nav a.nav-signup {
+  padding: 5px 16px;
+  border-radius: 999px;
+  font-weight: 700;
+  opacity: 1;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+header nav a.nav-login::after,
+header nav a.nav-signup::after {
+  content: none;
+}
+header nav a.nav-login {
+  margin-left: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  color: #fff;
+}
+header nav a.nav-login:hover,
+header nav a.nav-login.active {
+  background: #fff;
+  border-color: #fff;
+  color: var(--brand);
 }
 header nav a.nav-signup {
-  color: var(--accent);
-  font-weight: 700;
+  margin-left: -8px;
+  border: 2px solid var(--accent);
+  background: var(--accent);
+  color: var(--ink);
+}
+header nav a.nav-signup:hover,
+header nav a.nav-signup.active {
+  background: #ffd23f;
+  border-color: #ffd23f;
 }
 .lang {
   display: flex;
