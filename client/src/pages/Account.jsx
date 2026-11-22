@@ -153,7 +153,9 @@ function ChatBody() {
 
   useEffect(() => {
     if (list.current) list.current.scrollTop = list.current.scrollHeight;
-  }, [count]);
+    // Whatever is on screen counts as read.
+    if (count) api(`/conversations/${id}/read`, { method: 'POST' }).catch(() => {});
+  }, [count, id]);
 
   async function send(event) {
     event.preventDefault();

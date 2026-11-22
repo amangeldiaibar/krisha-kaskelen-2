@@ -135,6 +135,13 @@ CREATE TABLE IF NOT EXISTS phone_codes (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS phone_codes_user ON phone_codes(user_id);
+-- The last message each side has read in a chat, for unread counts.
+CREATE TABLE IF NOT EXISTS conversation_reads (
+  conversation_id integer NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  last_read_id integer NOT NULL DEFAULT 0,
+  PRIMARY KEY (conversation_id, user_id)
+);
 -- People who want to rent a flat together with someone mark it here, and others write to them.
 CREATE TABLE IF NOT EXISTS roommates (
   listing_id integer NOT NULL REFERENCES listings(id) ON DELETE CASCADE,

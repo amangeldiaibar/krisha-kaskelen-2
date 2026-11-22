@@ -674,14 +674,28 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
   const addMessage = async (tx, conversationId, senderId, text) =>
     (await tx.get('INSERT INTO messages (conversation_id, sender_id, text) VALUES ($1, $2, $3) RETURNING id', [conversationId, senderId, text])).id;
 
+  const markRead = (tx, conversationId, userId) =>
+    tx.run(
+      `INSERT INTO conversation_reads (conversation_id, user_id, last_read_id)
+       VALUES ($1, $2, (SELECT coalesce(max(id), 0) FROM messages WHERE conversation_id = $1))
+       ON CONFLICT (conversation_id, user_id) DO UPDATE SET last_read_id = greatest(conversation_reads.last_read_id, excluded.last_read_id)`,
+      [conversationId, userId],
+    );
+
+  /** Pushes the newest message to both sides, so the chat button can show who wrote and what. */
   async function announceMessage(conversationId) {
-    const { renter_id: renterId, other_id: otherId } = await db.get(
-      `SELECT conversations.renter_id, coalesce(conversations.peer_id, listings.user_id) AS other_id FROM conversations
-       JOIN listings ON listings.id = conversations.listing_id WHERE conversations.id = $1`,
+    const row = await db.get(
+      `SELECT conversations.renter_id, coalesce(conversations.peer_id, listings.user_id) AS other_id, listings.title,
+         messages.id, messages.text, messages.sender_id, users.name AS sender_name
+       FROM conversations JOIN listings ON listings.id = conversations.listing_id
+       JOIN messages ON messages.conversation_id = conversations.id JOIN users ON users.id = messages.sender_id
+       WHERE conversations.id = $1 ORDER BY messages.id DESC LIMIT 1`,
       [conversationId],
     );
-    for (const userId of new Set([renterId, otherId])) {
-      for (const stream of streams.get(userId) ?? []) stream.write(`data: ${JSON.stringify({ type: 'message', conversationId })}\n\n`);
+    if (!row) return;
+    const event = { type: 'message', conversationId, messageId: row.id, senderId: row.sender_id, senderName: row.sender_name, text: row.text, title: row.title };
+    for (const userId of new Set([row.renter_id, row.other_id])) {
+      for (const stream of streams.get(userId) ?? []) stream.write(`data: ${JSON.stringify(event)}\n\n`);
     }
   }
 
@@ -829,29 +843,53 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
   });
 
   app.get('/api/conversations', requireUser, async (req, res) => {
+    // Chats with the newest message first; unread counts only the other side's messages.
     const rows = await db.all(
       `SELECT conversations.id, listings.id AS listing_id, listings.title, conversations.peer_id IS NOT NULL AS flatmate,
          CASE WHEN conversations.renter_id = $1 THEN other.name ELSE renter.name END AS other_name,
-         (SELECT text FROM messages WHERE conversation_id = conversations.id ORDER BY id DESC LIMIT 1) AS last_message
+         CASE WHEN conversations.renter_id = $1 THEN other.avatar ELSE renter.avatar END AS other_avatar,
+         last.text AS last_message, last.created_at AS last_at, last.sender_id = $1 AS last_mine,
+         (SELECT COUNT(*)::int FROM messages WHERE conversation_id = conversations.id AND sender_id <> $1
+            AND id > coalesce((SELECT last_read_id FROM conversation_reads WHERE conversation_id = conversations.id AND user_id = $1), 0)) AS unread
        FROM conversations
        JOIN listings ON listings.id = conversations.listing_id
        JOIN users renter ON renter.id = conversations.renter_id
        JOIN users other ON other.id = coalesce(conversations.peer_id, listings.user_id)
+       LEFT JOIN LATERAL (SELECT text, created_at, sender_id FROM messages WHERE conversation_id = conversations.id ORDER BY id DESC LIMIT 1) last ON true
        WHERE conversations.renter_id = $1 OR coalesce(conversations.peer_id, listings.user_id) = $1
-       ORDER BY conversations.id DESC`,
+       ORDER BY coalesce(last.created_at, conversations.created_at) DESC, conversations.id DESC`,
       [req.user.id],
     );
-    res.json({
-      items: rows.map((row) => ({ id: row.id, listingId: row.listing_id, title: row.title, otherName: row.other_name, lastMessage: row.last_message, flatmate: row.flatmate })),
-    });
+    const items = rows.map((row) => ({
+      id: row.id,
+      listingId: row.listing_id,
+      title: row.title,
+      otherName: row.other_name,
+      otherAvatar: row.other_avatar ? `/uploads/${row.other_avatar}` : null,
+      lastMessage: row.last_message,
+      lastAt: row.last_at,
+      lastMine: Boolean(row.last_mine),
+      unread: row.unread,
+      flatmate: row.flatmate,
+    }));
+    res.json({ items, unread: items.reduce((sum, item) => sum + item.unread, 0) });
+  });
+
+  app.post('/api/conversations/:id/read', requireUser, async (req, res) => {
+    const conversation = await conversationFor(req.params.id, req.user.id);
+    await markRead(db, conversation.id, req.user.id);
+    res.status(204).end();
   });
 
   app.get('/api/conversations/:id/messages', requireUser, async (req, res) => {
     const conversation = await conversationFor(req.params.id, req.user.id);
     const rows = await db.all('SELECT * FROM messages WHERE conversation_id = $1 ORDER BY id', [conversation.id]);
+    const other = await db.get('SELECT name, avatar FROM users WHERE id = $1', [conversation.renter_id === req.user.id ? conversation.other_id : conversation.renter_id]);
     res.json({
       title: conversation.title,
       listingId: conversation.listing_id,
+      otherName: other.name,
+      otherAvatar: other.avatar ? `/uploads/${other.avatar}` : null,
       items: rows.map((row) => ({ id: row.id, text: row.text, createdAt: row.created_at, isMine: row.sender_id === req.user.id })),
     });
   });
@@ -861,8 +899,10 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
     const text = String(req.body?.text ?? '').trim();
     if (text.length < 1 || text.length > 2000) throw fieldError('text');
     const id = await addMessage(db, conversation.id, req.user.id, text);
+    // Whoever writes has read everything before it.
+    await markRead(db, conversation.id, req.user.id);
     await announceMessage(conversation.id);
-    res.status(201).json({ id, text, isMine: true });
+    res.status(201).json({ id, text, isMine: true, createdAt: new Date().toISOString() });
   });
 
   // Support: a logged-in person writes to the admins and sees their answers here.

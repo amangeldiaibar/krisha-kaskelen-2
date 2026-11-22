@@ -335,8 +335,40 @@ describe('favorites and chat', () => {
     assert.deepEqual(thread.data.items.map((m) => [m.text, m.isMine]), [['Здравствуйте', false], ['Добрый день', true]]);
     assert.equal((await owner('/api/conversations')).data.items[0].lastMessage, 'Добрый день');
     const stranger = await newUser();
+    assert.equal((await stranger(`/api/conversations/${id}/read`, { method: 'POST' })).status, 404);
     assert.equal((await stranger(`/api/conversations/${id}/messages`)).status, 404);
     assert.equal((await stranger(`/api/conversations/${id}/messages`, { method: 'POST', json: { text: 'Привет' } })).status, 404);
+  });
+
+  it('counts unread messages from the other side until the chat is read, newest chat first', async () => {
+    const owner = await newUser();
+    const first = (await owner('/api/listings', { method: 'POST', body: form() })).data.item.id;
+    const second = (await owner('/api/listings', { method: 'POST', body: form({ address: 'Абылай хана, 1', rooms: '3', area: '80', price: '250000', title: 'Большая трёшка', description: 'Просторная квартира для семьи с ремонтом' }) })).data.item.id;
+    await approve(first);
+    await approve(second);
+    const renter = await newUser();
+    const a = (await renter(`/api/listings/${first}/conversation`, { method: 'POST' })).data.id;
+    const b = (await renter(`/api/listings/${second}/conversation`, { method: 'POST' })).data.id;
+    await renter(`/api/conversations/${b}/messages`, { method: 'POST', json: { text: 'Раз' } });
+    await renter(`/api/conversations/${a}/messages`, { method: 'POST', json: { text: 'Два' } });
+    await renter(`/api/conversations/${a}/messages`, { method: 'POST', json: { text: 'Три' } });
+
+    let list = (await owner('/api/conversations')).data;
+    assert.equal(list.unread, 3);
+    assert.deepEqual(list.items.map((item) => [item.id, item.unread, item.lastMine]), [[a, 2, false], [b, 1, false]]);
+    // Your own messages are never unread for you.
+    assert.equal((await renter('/api/conversations')).data.unread, 0);
+
+    assert.equal((await owner(`/api/conversations/${a}/read`, { method: 'POST' })).status, 204);
+    list = (await owner('/api/conversations')).data;
+    assert.equal(list.unread, 1);
+    // Answering also marks the chat as read.
+    await owner(`/api/conversations/${b}/messages`, { method: 'POST', json: { text: 'Ответ' } });
+    list = (await owner('/api/conversations')).data;
+    assert.equal(list.unread, 0);
+    assert.deepEqual(list.items.map((item) => [item.id, item.lastMine]), [[b, true], [a, false]]);
+    assert.equal((await renter('/api/conversations')).data.unread, 1);
+    assert.equal((await renter(`/api/conversations/${b}/messages`)).data.otherName, 'Имя Фамилия');
   });
 
   it('pushes a new message to both sides at once, and to nobody else', async () => {
@@ -366,8 +398,12 @@ describe('favorites and chat', () => {
     await renter(`/api/conversations/${id}/messages`, { method: 'POST', json: { text: 'Здравствуйте' } });
     await new Promise((resolve) => { setTimeout(resolve, 100); });
     abort.abort();
-    assert.deepEqual(ownerEvents, [{ type: 'message', conversationId: id }]);
-    assert.deepEqual(renterEvents, [{ type: 'message', conversationId: id }]);
+    // The event says who wrote and what, for the chat button's preview.
+    const { id: senderId, name } = (await renter('/api/auth/me')).data.user;
+    const expected = { type: 'message', conversationId: id, senderId, senderName: name, text: 'Здравствуйте', title: 'Квартира у SDU' };
+    assert.equal(ownerEvents.length, 1);
+    assert.deepEqual({ ...ownerEvents[0], messageId: undefined }, { ...expected, messageId: undefined });
+    assert.deepEqual(renterEvents, ownerEvents);
     assert.deepEqual(strangerEvents, []);
   });
 });

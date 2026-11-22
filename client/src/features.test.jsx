@@ -9,6 +9,7 @@ import Listing from './pages/Listing.jsx';
 import Support from './pages/Support.jsx';
 import { ForgotPassword, ResetPassword } from './pages/Auth.jsx';
 import { pageNumbers } from './components/Shared.jsx';
+import ChatWidget from './components/ChatWidget.jsx';
 
 const item = (over) => ({
   id: 1, title: 'Квартира', deal: 'rent', price: 120000, rooms: 1, area: 40, floor: 2, floors: 5, year: 2015, district: 'near_sdu', address: 'Абылай хана 12',
@@ -129,10 +130,15 @@ describe('flatmates', () => {
     await waitFor(() => expect(calls.find((call) => call.path === '/listings/5/roommates' && call.method === 'PUT')?.body).toEqual({ note: 'Не курю' }));
     expect(await screen.findByText('Вы в списке')).toBeTruthy();
 
+    // The chat opens in the chat button's window, and the page stays.
+    const opened = [];
+    const onOpen = (event) => opened.push(event.detail.id);
+    window.addEventListener('chat:open', onOpen);
     fireEvent.click(screen.getByRole('button', { name: 'Написать' }));
-    // The chat page is another route, so the page leaves this one.
-    await waitFor(() => expect(calls.some((call) => call.path === '/listings/5/roommates/9/conversation' && call.method === 'POST')).toBe(true));
-    await waitFor(() => expect(screen.queryByText('Ищут соседей')).toBeNull());
+    await waitFor(() => expect(opened).toEqual([77]));
+    window.removeEventListener('chat:open', onOpen);
+    expect(calls.some((call) => call.path === '/listings/5/roommates/9/conversation' && call.method === 'POST')).toBe(true);
+    expect(screen.getByText('Ищут соседей')).toBeTruthy();
   });
 });
 
@@ -362,5 +368,34 @@ describe('admin panel', () => {
     expect(screen.getByText('тот же адрес')).toBeTruthy();
     fireEvent.click(screen.getAllByRole('button', { name: 'Оставить это' })[0]);
     await waitFor(() => expect(calls.find((call) => call.path === '/admin/duplicates/merge')?.body).toEqual({ keepId: 4, duplicateId: 9 }));
+  });
+});
+
+describe('chat button', () => {
+  it('shows unread messages, a preview of a new one, and the whole chat in its window', async () => {
+    const streams = [];
+    vi.stubGlobal('EventSource', class { constructor() { streams.push(this); } close() {} });
+    let unread = 2;
+    const calls = mockApi({
+      '/auth/me': { user: { id: 1, name: 'Dias', role: 'user' } },
+      '/conversations/7/messages': (path) => (path.endsWith('/messages') ? { title: 'Квартира у SDU', listingId: 5, otherName: 'Аружан', otherAvatar: null, items: [{ id: 1, text: 'Здравствуйте', isMine: false, createdAt: '2026-11-22T09:00:00Z' }] } : {}),
+      '/conversations/7/read': () => { unread = 0; return {}; },
+      '/conversations': () => ({ unread, items: [{ id: 7, listingId: 5, title: 'Квартира у SDU', otherName: 'Аружан', otherAvatar: null, lastMessage: 'Здравствуйте', lastAt: '2026-11-22T09:00:00Z', lastMine: false, unread, flatmate: false }] }),
+    });
+    show('/ru', <ChatWidget />, '/:lang');
+    const button = await screen.findByRole('button', { name: 'Непрочитанных сообщений: 2' });
+    expect(button.textContent).toContain('2');
+
+    streams[0].onmessage({ data: JSON.stringify({ type: 'message', conversationId: 7, senderId: 9, senderName: 'Аружан', text: 'Квартира ещё свободна?' }) });
+    expect(await screen.findByText('Новое сообщение от Аружан')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('Квартира ещё свободна?'));
+    expect(await screen.findByRole('dialog', { name: 'Сообщения' })).toBeTruthy();
+    expect(await screen.findByText('Здравствуйте', { selector: '.cw-bubble span' })).toBeTruthy();
+    await waitFor(() => expect(calls.some((call) => call.path === '/conversations/7/read' && call.method === 'POST')).toBe(true));
+
+    fireEvent.change(screen.getByLabelText('Напишите сообщение'), { target: { value: 'Да' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить' }));
+    await waitFor(() => expect(calls.find((call) => call.path === '/conversations/7/messages' && call.method === 'POST')?.body).toEqual({ text: 'Да' }));
   });
 });

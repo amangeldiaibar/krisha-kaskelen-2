@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { LANGS, LANG_LABELS, translate } from '../i18n.js';
 import { useAuth, useCompare, useFetch, useI18n, usePolling, useToast } from '../context.jsx';
 import { COUNTRIES, countryByIso, countryOf, flagOf, formatNational, nationalOf, nationalPattern, phoneExample } from '../phone.js';
+import ChatWidget from './ChatWidget.jsx';
 
 /** Admin panel sections an admin may get one by one; matches the server. */
 export const ADMIN_SECTIONS = ['listings', 'reviews', 'support', 'users'];
@@ -62,6 +63,7 @@ function LayoutBody() {
       </header>
       <div className="page" key={location.pathname}><Outlet /></div>
       <CompareBar />
+      <ChatWidget />
       <footer><div className="wrap">{t('footer')}</div></footer>
     </>
   );

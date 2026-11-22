@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import { api } from '../api.js';
 import { useAuth, useFetch, useI18n, usePolling, useToast } from '../context.jsx';
 import { AdminDeleteButton, CompareButton, LoginForContacts, canAdmin, listingPrice, sourceName, DeleteListingButton, Distance, FavoriteButton, Freshness, PhoneVerified, HouseArt, ListingsMap, SkeletonCards, SourceBadge, Status, listingLabel } from '../components/Shared.jsx';
+import { openChat } from '../components/ChatWidget.jsx';
 
 const PENDING_POLL_MS = 3000;
 
@@ -331,7 +332,7 @@ function Roommates({ item }) {
   const write = (person) =>
     act(async () => {
       const { id } = await api(`/listings/${item.id}/roommates/${person.userId}/conversation`, { method: 'POST' });
-      navigate(path(`/chats/${id}`));
+      openChat(id);
     });
   const startEditing = () => {
     if (!user) return login();
@@ -461,7 +462,7 @@ function ContactPanel({ item }) {
     if (!user) return navigate(path('/login'), { state: { from: location.pathname } });
     try {
       const { id } = await api(`/listings/${item.id}/conversation`, { method: 'POST' });
-      navigate(path(`/chats/${id}`));
+      openChat(id);
     } catch (failure) {
       setError(failure);
     }

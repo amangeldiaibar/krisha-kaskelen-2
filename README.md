@@ -26,6 +26,7 @@ The frontend uses React and React Router. The backend uses Express and PostgreSQ
 - Forgot password: a one-time link by email.
 - Support page: people write to the admins and see their answers.
 - Favorites and Support are in the header.
+- A chat button at the bottom right of every page: unread count, a preview of each new message, and the whole chat in a window.
 - Flatmates: on a rental, people mark that they look for a flatmate and write to each other.
 - Saving the profile says which field clashes with another account.
 
@@ -74,7 +75,7 @@ npm run lint
 - **Ad management:** owners can post, edit and delete their own ads. Deleting also removes the ad's photos, reviews, requests and chats.
 - **Reviews:** users can leave one review per ad, and never on their own ad.
 - **Profile:** the photo and name at the top right open a menu with settings, favorites, own ads, requests and messages. In settings a user can change the name, phone, profile photo and password.
-- **Favorites and chat:** users can save ads and message owners. Messages arrive live, without a page refresh.
+- **Favorites and chat:** users can save ads and message owners. A round chat button sits at the bottom right of every page for signed-in people. It shows how many messages are unread, pops up who wrote and what when a new message comes, and opens the whole chat in a window: the list of chats with the newest first, then the conversation. Messages arrive live, without a page refresh. "Write to the owner" and "Write" to a future flatmate open that window. On a phone it fills the screen.
 - **Moderation:** an AI model approves or rejects each ad and review, and gives a reason. An admin can overrule it.
 - **Search by phrase:** type what you want, such as "однушка до 120к рядом с SDU с мебелью", in Russian, Kazakh or English. Gemini turns it into filters, and plain rules do it when there is no key or Gemini fails. The filters appear as chips that can be removed one by one. Search also filters by distance to SDU and by amenities mentioned in the ad text (furniture, pets, internet and more), and sorts by distance (the default), price or date.
 - **Comparison:** the ⇄ button on an ad adds it to a comparison of up to four ads. The table marks the best price, price per m², area, distance and year, and shows which amenities each ad mentions. The list stays in the browser, and the page has a link to share it.
