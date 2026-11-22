@@ -114,7 +114,6 @@ function ProfileMenu() {
           <NavLink role="menuitem" to={path('/favorites')}>{t('favorites')}</NavLink>
           <NavLink role="menuitem" to={path('/mine')}>{t('myListings')}</NavLink>
           <NavLink role="menuitem" to={path('/requests')}>{t('requests')}{badge}</NavLink>
-          <NavLink role="menuitem" to={path('/chats')}>{t('chats')}</NavLink>
           <button role="menuitem" type="button" onClick={() => logout().then(() => navigate(path()))}>{t('logout')}</button>
         </div>
       )}

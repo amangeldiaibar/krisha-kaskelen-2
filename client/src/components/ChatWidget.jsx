@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth, useI18n, useToast } from '../context.jsx';
 
@@ -171,7 +171,6 @@ export default function ChatWidget() {
   const { user } = useAuth();
   const { t } = useI18n();
   const toast = useToast();
-  const location = useLocation();
   const [open, setOpen] = useState(false);
   // The window stays on screen while it animates away, then leaves.
   const [closing, setClosing] = useState(false);
@@ -182,7 +181,6 @@ export default function ChatWidget() {
   const [preview, setPreview] = useState(null);
   const state = useRef({ open, active });
   state.current = { open, active };
-  const onChatsPage = /^\/[^/]+\/chats(\/|$)/.test(location.pathname);
 
   const reload = useCallback(async () => {
     try {
@@ -274,7 +272,7 @@ export default function ChatWidget() {
     return () => document.removeEventListener('keydown', close);
   }, [shown, hide]);
 
-  if (!user || onChatsPage) return null;
+  if (!user) return null;
 
   return (
     <div className="cw">

@@ -148,23 +148,6 @@ export function useFetch(path) {
   return { ...state, reload };
 }
 
-/**
- * Refreshes the moment the server announces a new chat message.
- * It also refreshes after every reconnect, so nothing sent meanwhile is missed.
- */
-export function useLiveChat(reload) {
-  useEffect(() => {
-    const source = new EventSource('/api/events');
-    let opened = false;
-    source.onopen = () => {
-      if (opened) reload();
-      opened = true;
-    };
-    source.onmessage = reload;
-    return () => source.close();
-  }, [reload]);
-}
-
 /** Refreshes on a timer while `active` is true. */
 export function usePolling(reload, ms, active = true) {
   useEffect(() => {

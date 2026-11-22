@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, Navigate, useParams } from 'react-router-dom';
 import { api } from '../api.js';
-import { useAuth, useFetch, useI18n, useLiveChat, usePolling, useToast } from '../context.jsx';
+import { useAuth, useFetch, useI18n, usePolling, useToast } from '../context.jsx';
 import { Avatar, DeleteListingButton, ListingCard, PhoneInput, RequireLogin, SkeletonCards, Status, formatPrice } from '../components/Shared.jsx';
+import { openChat } from '../components/ChatWidget.jsx';
 
 function FavoritesBody() {
   const { t } = useI18n();
@@ -117,79 +118,20 @@ export function Requests() {
   return <main className="wrap formpage"><h1>{t('requests')}</h1><RequireLogin><RequestsBody /></RequireLogin></main>;
 }
 
-function ChatsBody() {
-  const { t, path } = useI18n();
-  const { data, loading, error, reload } = useFetch('/conversations');
-  useLiveChat(reload);
-  return (
-    <section className="panel">
-      <Status loading={loading && !data} error={error} onRetry={reload} />
-      {data?.items.length === 0 && <p className="state">{t('noChats')}</p>}
-      {data?.items.map((item) => (
-        <Link className="linkrow" key={item.id} to={path(`/chats/${item.id}`)}>
-          <b>{item.title}</b>
-          <div className="meta">{item.otherName}{item.flatmate ? ` · ${t('flatmateChat')}` : ''}{item.lastMessage ? ` · ${item.lastMessage}` : ''}</div>
-        </Link>
-      ))}
-    </section>
-  );
+/** Old chat addresses open the chat window at the bottom right, over the home page. */
+function OpenChatWindow({ id = null }) {
+  const { path } = useI18n();
+  useEffect(() => { openChat(id); }, [id]);
+  return <Navigate to={path()} replace />;
 }
 
 export function Chats() {
-  const { t } = useI18n();
-  return <main className="wrap formpage"><h1>{t('chats')}</h1><RequireLogin><ChatsBody /></RequireLogin></main>;
-}
-
-function ChatBody() {
-  const { id } = useParams();
-  const { t, tError, path } = useI18n();
-  const { data, loading, error, reload } = useFetch(`/conversations/${id}/messages`);
-  const [text, setText] = useState('');
-  const [sendError, setSendError] = useState(null);
-  const list = useRef(null);
-  const count = data?.items.length ?? 0;
-
-  useLiveChat(reload);
-
-  useEffect(() => {
-    if (list.current) list.current.scrollTop = list.current.scrollHeight;
-    // Whatever is on screen counts as read.
-    if (count) api(`/conversations/${id}/read`, { method: 'POST' }).catch(() => {});
-  }, [count, id]);
-
-  async function send(event) {
-    event.preventDefault();
-    setSendError(null);
-    try {
-      await api(`/conversations/${id}/messages`, { method: 'POST', body: { text } });
-      setText('');
-    } catch (failure) {
-      setSendError(failure);
-    }
-  }
-
-  if (!data) return <Status loading={loading} error={error} onRetry={reload} />;
-  return (
-    <section className="panel">
-      <h2><Link to={path(`/listing/${data.listingId}`)}>{data.title}</Link></h2>
-      <div className="chat" ref={list} aria-live="polite">
-        {count === 0 && <p className="meta">{t('noMessages')}</p>}
-        {data.items.map((message) => (
-          <div className={`bubble pop prose${message.isMine ? ' mine' : ''}`} key={message.id}>{message.text}</div>
-        ))}
-      </div>
-      <form className="chatform" onSubmit={send}>
-        <input type="text" value={text} onChange={(event) => setText(event.target.value)} placeholder={t('messagePh')} aria-label={t('messagePh')} required maxLength={2000} />
-        <button className="btn" type="submit">{t('send')}</button>
-      </form>
-      {sendError && <p className="error-text" role="alert">{tError(sendError)}</p>}
-    </section>
-  );
+  return <OpenChatWindow />;
 }
 
 export function Chat() {
-  const { t } = useI18n();
-  return <main className="wrap formpage"><h1>{t('chats')}</h1><RequireLogin><ChatBody /></RequireLogin></main>;
+  const { id } = useParams();
+  return <OpenChatWindow id={Number(id)} />;
 }
 
 function ProfileForm() {

@@ -22,12 +22,17 @@ The frontend uses React and React Router. The backend uses Express and PostgreSQ
 - Reports: a signed-in user can report an ad as fraud, wrong details, taken, a copy or offensive.
 - Duplicates: the same flat from krisha.kz and Telegram is found, and an admin keeps one copy.
 
+**Messages**
+- A round chat button at the bottom right of every page replaces the Messages item in the profile menu. It shows how many messages are unread and pops up who wrote and what when a new message comes.
+- The chat opens in a window: the list of chats with the newest first, then the conversation, with messages arriving live. On a phone it fills the screen. It opens and closes with a smooth animation.
+- "Write to the owner" and "Write" to a future flatmate open this window instead of another page.
+- Your messages show ✓ when sent and a blue ✓✓ once the other person has read them.
+- People delete their own messages for both sides, and delete one chat from the list or all chats at once, for themselves only.
+
 **Accounts and help**
 - Forgot password: a one-time link by email.
 - Support page: people write to the admins and see their answers.
 - Favorites and Support are in the header.
-- A chat button at the bottom right of every page: unread count, a preview of each new message, and the whole chat in a window, where people delete their own messages, one chat from the list or all chats at once, and see ✓ sent and ✓✓ read on their messages.
-- The header stays on one line in Russian and Kazakh, and on narrower screens the links move to a row of their own instead of pushing the language switch down.
 - Flatmates: on a rental, people mark that they look for a flatmate and write to each other.
 - Saving the profile says which field clashes with another account.
 
@@ -45,6 +50,8 @@ The frontend uses React and React Router. The backend uses Express and PostgreSQ
 
 **Look**
 - The project has an avatar, a house under the Alatau, used as the browser tab icon and in the header.
+- Log in is an outlined button and Sign up a yellow one, so both stand out from the page links.
+- The header stays on one line in Russian and Kazakh; on narrower screens the links move to a row of their own instead of pushing the language switch down.
 
 ## Getting started
 
@@ -75,8 +82,8 @@ npm run lint
 - **Rent and buy requests:** a user sends a request with a date and a message, and the owner accepts or declines it.
 - **Ad management:** owners can post, edit and delete their own ads. Deleting also removes the ad's photos, reviews, requests and chats.
 - **Reviews:** users can leave one review per ad, and never on their own ad.
-- **Profile:** the photo and name at the top right open a menu with settings, favorites, own ads, requests and messages. In settings a user can change the name, phone, profile photo and password.
-- **Favorites and chat:** users can save ads and message owners. A round chat button sits at the bottom right of every page for signed-in people. It shows how many messages are unread, pops up who wrote and what when a new message comes, and opens the whole chat in a window: the list of chats with the newest first, then the conversation. Messages arrive live, without a page refresh. "Write to the owner" and "Write" to a future flatmate open that window. On a phone it fills the screen. A person deletes their own message with the red × that appears over it, and it disappears for both sides. A chat is deleted from the list with its bin icon, without opening it, or from the bin at the top of the chat, and "Delete all" clears every chat at once. Deleting a chat removes it for that person only; the other side keeps it, and it comes back, with only the new messages, when someone writes again. Your messages show ✓ when sent and a blue ✓✓ once the other person has opened the chat, and the mark changes live.
+- **Profile:** the photo and name at the top right open a menu with settings, favorites, own ads and requests. Messages are in the chat button at the bottom right. In settings a user can change the name, phone, profile photo and password.
+- **Favorites and chat:** users can save ads and message owners. A round chat button sits at the bottom right of every page for signed-in people. It shows how many messages are unread, pops up who wrote and what when a new message comes, and opens the whole chat in a window: the list of chats with the newest first, then the conversation. Messages arrive live, without a page refresh. "Write to the owner" and "Write" to a future flatmate open that window, and the old chat addresses do too. On a phone it fills the screen. A person deletes their own message with the red × that appears over it, and it disappears for both sides. A chat is deleted from the list with its bin icon, without opening it, or from the bin at the top of the chat, and "Delete all" clears every chat at once. Deleting a chat removes it for that person only; the other side keeps it, and it comes back, with only the new messages, when someone writes again. Your messages show ✓ when sent and a blue ✓✓ once the other person has opened the chat, and the mark changes live.
 - **Moderation:** an AI model approves or rejects each ad and review, and gives a reason. An admin can overrule it.
 - **Search by phrase:** type what you want, such as "однушка до 120к рядом с SDU с мебелью", in Russian, Kazakh or English. Gemini turns it into filters, and plain rules do it when there is no key or Gemini fails. The filters appear as chips that can be removed one by one. Search also filters by distance to SDU and by amenities mentioned in the ad text (furniture, pets, internet and more), and sorts by distance (the default), price or date.
 - **Comparison:** the ⇄ button on an ad adds it to a comparison of up to four ads. The table marks the best price, price per m², area, distance and year, and shows which amenities each ad mentions. The list stays in the browser, and the page has a link to share it.
