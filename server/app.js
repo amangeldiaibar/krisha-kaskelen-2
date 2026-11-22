@@ -6,9 +6,10 @@ import multer from 'multer';
 import { rateLimit } from 'express-rate-limit';
 import { SDU, STALE_AFTER_DAYS } from './config.js';
 import { isUniqueViolation } from './db.js';
-import { distanceKm } from './geo.js';
+import { distanceKm, travelTime } from './geo.js';
 import { COOKIE, USER_COLUMNS, canAdmin, createSession, destroySession, hashPassword, loadUser, readCookie, requireUser, tokenHash, verifyPassword } from './auth.js';
 import { createMailer } from './services/mail.js';
+import { createSms } from './services/sms.js';
 import { normalizePhone } from '../shared/phones.js';
 import { sniffImage } from './images.js';
 import { DgisError } from './services/dgis.js';
@@ -98,7 +99,7 @@ function validateListing(body) {
 
 const langOf = (req) => (LANGS.has(req.body?.lang) ? req.body.lang : 'ru');
 
-export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = createSearchParser(), secureCookies = false, authRateLimit = 30, onContentChanged = () => {}, mailer = createMailer({}), publicUrl = 'http://localhost:5173' }) {
+export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = createSearchParser(), secureCookies = false, authRateLimit = 30, onContentChanged = () => {}, mailer = createMailer({}), sms = createSms({}), publicUrl = 'http://localhost:5173' }) {
   fs.mkdirSync(uploadsDir, { recursive: true });
   const app = express();
   app.disable('x-powered-by');
@@ -123,12 +124,16 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
 
   async function present(row, userId, includeModeration = false) {
     const point = row.lat !== null && row.lon !== null ? { lat: row.lat, lon: row.lon } : null;
-    const [photos, myRequest, favorite, roommates] = await Promise.all([
+    const [photos, myRequest, favorite, roommates, owner] = await Promise.all([
       photosOf(row.id),
       userId ? db.get('SELECT id, status FROM deal_requests WHERE listing_id = $1 AND requester_id = $2 ORDER BY id DESC LIMIT 1', [row.id, userId]) : null,
       userId ? db.get('SELECT 1 FROM favorites WHERE user_id = $1 AND listing_id = $2', [userId, row.id]) : null,
       db.get('SELECT COUNT(*)::int AS n FROM roommates WHERE listing_id = $1', [row.id]),
+      row.user_id ? db.get('SELECT phone, phone_verified_at FROM users WHERE id = $1', [row.user_id]) : null,
     ]);
+    const straightKm = point ? distanceKm(SDU, point) : null;
+    // The routed walk counts only while the pin is where it was routed from.
+    const walk = point && row.walk_for === `${row.lat},${row.lon}` && row.walk_km !== null ? { km: row.walk_km, minutes: row.walk_min } : null;
     return {
       id: row.id,
       title: row.title,
@@ -146,7 +151,8 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
       // The owner's phone is for people who signed in; the link to the original ad is open to all.
       phone: userId ? row.phone : null,
       point,
-      distanceKm: point ? Math.round(distanceKm(SDU, point) * 10) / 10 : null,
+      distanceKm: point ? Math.round(straightKm * 10) / 10 : null,
+      travel: travelTime(straightKm, walk),
       // When the ad was last updated: at its source for imports, on this site for the rest.
       updatedAt: row.refreshed_at ?? row.updated_at,
       source: { type: row.source_type, name: row.source_name, url: row.source_url },
@@ -154,6 +160,8 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
       photosAreExamples: row.source_type === 'test',
       isOwner: Boolean(userId && row.user_id === userId),
       canChat: Boolean(row.user_id && row.user_id !== userId),
+      // The owner proved by SMS that the number in the ad is theirs.
+      phoneVerified: Boolean(owner?.phone_verified_at && owner.phone === row.phone),
       dealStatus: row.deal_status,
       canRequest: Boolean(row.user_id && row.user_id !== userId && row.deal_status === 'available' && row.status === 'approved'),
       myRequest: myRequest ?? null,
@@ -320,7 +328,11 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
       fs.writeFileSync(path.join(uploadsDir, avatar), req.file.buffer);
     }
     try {
-      await db.run('UPDATE users SET name = $1, phone = $2, avatar = $3 WHERE id = $4', [name, phone, avatar, req.user.id]);
+      // A new number has to be confirmed again.
+      await db.run(
+        'UPDATE users SET name = $1, phone = $2, avatar = $3, phone_verified_at = CASE WHEN phone = $2 THEN phone_verified_at END WHERE id = $4',
+        [name, phone, avatar, req.user.id],
+      );
     } catch (error) {
       if (type) fs.rmSync(path.join(uploadsDir, avatar), { force: true });
       // Only the phone changes here, so a clash means another account already uses this number.
@@ -344,6 +356,56 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
     });
     await setSession(res, req.user.id);
     res.status(204).end();
+  });
+
+  // Phone confirmation: a six-digit code by SMS to the number in the profile.
+  const CODE_TTL_MS = 10 * 60 * 1000;
+  const CODES_PER_HOUR = 3;
+  const CODE_GAP_S = 60;
+  const CODE_ATTEMPTS = 5;
+  const SMS_TEXT = {
+    ru: (code) => `Krisha Kaskelen: код подтверждения ${code}. Никому его не сообщайте.`,
+    en: (code) => `Krisha Kaskelen: your confirmation code is ${code}. Do not share it.`,
+    kk: (code) => `Krisha Kaskelen: растау коды ${code}. Оны ешкімге айтпаңыз.`,
+  };
+  const codeHash = (userId, code) => tokenHash(`${userId}:${code}`);
+
+  app.post('/api/auth/phone/send', authLimiter, requireUser, async (req, res) => {
+    const user = await db.get('SELECT phone, phone_verified_at FROM users WHERE id = $1', [req.user.id]);
+    if (user.phone_verified_at) throw new HttpError(409, 'phone_already_verified');
+    const { n, wait } = await db.get(
+      `SELECT COUNT(*)::int AS n, COALESCE(MAX(${CODE_GAP_S} - EXTRACT(EPOCH FROM now() - created_at)), 0)::int AS wait
+       FROM phone_codes WHERE user_id = $1 AND created_at > now() - interval '1 hour'`,
+      [req.user.id],
+    );
+    if (n >= CODES_PER_HOUR || wait > 0) throw Object.assign(new HttpError(429, 'sms_too_often'), { retryAfter: Math.max(wait, 0) });
+    const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+    await db.run('INSERT INTO phone_codes (user_id, phone, code_hash, expires_at) VALUES ($1, $2, $3, $4)', [req.user.id, user.phone, codeHash(req.user.id, code), Date.now() + CODE_TTL_MS]);
+    try {
+      await sms.send({ to: user.phone, text: (SMS_TEXT[langOf(req)] ?? SMS_TEXT.ru)(code) });
+    } catch (error) {
+      console.error(`Could not send the SMS: ${error.message}`);
+      throw new HttpError(502, 'sms_failed');
+    }
+    res.json({ phone: user.phone, resendIn: CODE_GAP_S });
+  });
+
+  app.post('/api/auth/phone/verify', authLimiter, requireUser, async (req, res) => {
+    const code = String(req.body?.code ?? '').replace(/\s/g, '');
+    if (!/^\d{6}$/.test(code)) throw fieldError('code');
+    const { phone } = await db.get('SELECT phone FROM users WHERE id = $1', [req.user.id]);
+    // Only the newest code for the current number counts, and only for a few guesses.
+    const last = await db.get('SELECT * FROM phone_codes WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [req.user.id]);
+    if (!last || last.phone !== phone || last.expires_at < Date.now() || last.attempts >= CODE_ATTEMPTS) throw new HttpError(400, 'code_expired');
+    if (last.code_hash !== codeHash(req.user.id, code)) {
+      await db.run('UPDATE phone_codes SET attempts = attempts + 1 WHERE id = $1', [last.id]);
+      throw Object.assign(new HttpError(400, 'code_wrong'), { field: 'code' });
+    }
+    await db.transaction(async (tx) => {
+      await tx.run('UPDATE users SET phone_verified_at = now() WHERE id = $1', [req.user.id]);
+      await tx.run('DELETE FROM phone_codes WHERE user_id = $1', [req.user.id]);
+    });
+    res.json({ user: await publicUser(req.user.id) });
   });
 
   // Listings
@@ -938,7 +1000,7 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
 
   // eslint-disable-next-line no-unused-vars
   app.use((error, _req, res, _next) => {
-    if (error instanceof HttpError) return res.status(error.status).json({ error: error.code, field: error.field, existingId: error.existingId });
+    if (error instanceof HttpError) return res.status(error.status).json({ error: error.code, field: error.field, existingId: error.existingId, retryAfter: error.retryAfter });
     if (error instanceof multer.MulterError) return res.status(422).json({ error: 'invalid_photo' });
     if (error instanceof DgisError || error.name === 'TimeoutError') {
       console.warn(error.message);

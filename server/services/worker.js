@@ -4,6 +4,8 @@ import { distanceKm } from '../geo.js';
 const BATCH_SIZE = 5;
 /** OpenStreetMap allows a request a second, so 20 lookups fit in one 30-second tick. */
 const GEOCODE_BATCH_SIZE = 20;
+/** Walking routes to SDU, a request a second like the geocoder. */
+const ROUTE_BATCH_SIZE = 20;
 /** Ads that are refused before the AI sees them, with the reason in the author's language. */
 const RULE_REASONS = {
   no_photos: {
@@ -34,9 +36,10 @@ export function ruleReason(listing) {
 const PAUSE_MS = 10 * 60_000;
 
 /** Fills in missing coordinates and moderates pending listings and reviews. */
-export function createWorker({ db, dgis, moderator, log = console, now = Date.now }) {
+export function createWorker({ db, dgis, moderator, router = null, log = console, now = Date.now, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
   let running = false;
   let geocodePausedUntil = 0;
+  let routePausedUntil = 0;
   let moderationPausedUntil = 0;
 
   async function geocodeMissing() {
@@ -55,6 +58,27 @@ export function createWorker({ db, dgis, moderator, log = console, now = Date.no
       } catch (error) {
         geocodePausedUntil = now() + PAUSE_MS;
         log.warn(`Geocoding listing ${row.id} failed, pausing geocoding for 10 minutes: ${error.message}`);
+        return;
+      }
+    }
+  }
+
+  /** Routes the walk to SDU for ads whose pin is new or moved. No path found still counts as routed. */
+  async function routeMissing() {
+    if (!router || now() < routePausedUntil) return;
+    const rows = await db.all(
+      `SELECT id, lat, lon, lat::text || ',' || lon::text AS here FROM listings
+       WHERE lat IS NOT NULL AND walk_for IS DISTINCT FROM lat::text || ',' || lon::text ORDER BY id LIMIT $1`,
+      [ROUTE_BATCH_SIZE],
+    );
+    for (const [index, row] of rows.entries()) {
+      if (index > 0) await wait(1000);
+      try {
+        const walk = await router.walkToSdu({ lat: row.lat, lon: row.lon });
+        await db.run('UPDATE listings SET walk_km = $1, walk_min = $2, walk_for = $3 WHERE id = $4', [walk?.km ?? null, walk?.minutes ?? null, row.here, row.id]);
+      } catch (error) {
+        routePausedUntil = now() + PAUSE_MS;
+        log.warn(`Routing listing ${row.id} failed, pausing routing for 10 minutes: ${error.message}`);
         return;
       }
     }
@@ -117,6 +141,7 @@ export function createWorker({ db, dgis, moderator, log = console, now = Date.no
     try {
       await geocodeMissing();
       await moderatePending();
+      await routeMissing();
     } finally {
       running = false;
     }

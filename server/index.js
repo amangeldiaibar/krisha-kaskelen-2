@@ -4,6 +4,8 @@ import { openDatabase } from './open-db.js';
 import { createApp } from './app.js';
 import { createDgis } from './services/dgis.js';
 import { createMailer } from './services/mail.js';
+import { createFootRouter } from './services/route.js';
+import { createSms } from './services/sms.js';
 import { createGeminiModerator, createUncheckedModerator } from './services/moderation.js';
 import { createSearchParser } from './services/search.js';
 import { createWorker } from './services/worker.js';
@@ -36,7 +38,7 @@ if (config.geminiKey) {
 } else if (!config.isProduction) {
   moderator = createUncheckedModerator();
 }
-const worker = createWorker({ db, dgis, moderator });
+const worker = createWorker({ db, dgis, moderator, router: createFootRouter() });
 const runWorker = () => worker.tick().catch((error) => console.error(error));
 
 const app = createApp({
@@ -49,10 +51,12 @@ const app = createApp({
   secureCookies: config.isProduction,
   onContentChanged: runWorker,
   mailer: createMailer({ smtpUrl: config.smtpUrl, from: config.mailFrom }),
+  sms: createSms({ apiKey: config.mobizonKey, apiUrl: config.mobizonUrl }),
   publicUrl: config.publicUrl || `http://localhost:${config.port}`,
 });
 if (config.isProduction && !config.publicUrl) console.warn('Set PUBLIC_URL, so links in password reset letters point to the site.');
 if (!config.smtpUrl) console.log('Password reset letters are printed here, because SMTP_URL is not set.');
+if (!config.mobizonKey) console.log('Phone confirmation codes are printed here, because MOBIZON_API_KEY is not set.');
 
 setInterval(runWorker, WORKER_INTERVAL_MS).unref();
 runWorker();

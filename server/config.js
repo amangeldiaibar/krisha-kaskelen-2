@@ -36,6 +36,9 @@ export const config = {
   mailFrom: process.env.MAIL_FROM || 'Krisha Kaskelen <no-reply@krisha-kaskelen.local>',
   // Where links in letters point. The Vite dev server is on 5173.
   publicUrl: (process.env.PUBLIC_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5173')).replace(/\/$/, ''),
+  // Phone confirmation codes. Without MOBIZON_API_KEY they are printed to the console.
+  mobizonKey: process.env.MOBIZON_API_KEY || '',
+  mobizonUrl: process.env.MOBIZON_API_URL || 'https://api.mobizon.kz',
   telegram: {
     apiId: Number(process.env.TELEGRAM_API_ID || 0),
     apiHash: process.env.TELEGRAM_API_HASH || '',

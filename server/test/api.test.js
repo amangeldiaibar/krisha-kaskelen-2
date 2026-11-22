@@ -16,6 +16,8 @@ import { createOsmGeocoder } from '../services/osm.js';
 import { geocodeQuery, inServiceArea, mentionsServiceArea, placeOf } from '../services/area.js';
 import { createGeminiModerator, createUncheckedModerator, ModerationUnavailable, NO_AI_KEY_REASON } from '../services/moderation.js';
 import { createWorker } from '../services/worker.js';
+import { createFootRouter } from '../services/route.js';
+import { travelTime } from '../geo.js';
 import { addListingPhotos, saveImports } from '../services/importer.js';
 import { cleanPost, groupAlbums, looksLikeRental, postsToListings, toListing } from '../services/telegram.js';
 import { addressKey, compareListings, findDuplicatePairs } from '../services/duplicates.js';
@@ -32,6 +34,8 @@ const form = (over = {}) => {
 let server, base, db, tmp, dgis, stopPostgres;
 // Letters the app sends, kept instead of being mailed.
 const letters = [];
+// SMS the app sends, kept instead of being delivered.
+const texts = [];
 
 // Tests get their own PostgreSQL server and database, so they never touch the site's data.
 // Set TEST_DATABASE_URL to use another server instead. Its tables are wiped on every run.
@@ -82,7 +86,7 @@ before(async () => {
     reviewsForAddress: async () => ({ status: 'unavailable', rating: 4.5, count: 3, reviews: [] }),
     tile: async () => ({ type: 'image/png', body: PNG }),
   };
-  const app = createApp({ db, dgis, uploadsDir: tmp, authRateLimit: 100000, publicUrl: 'https://site.test', mailer: { send: async (letter) => { letters.push(letter); } } });
+  const app = createApp({ db, dgis, uploadsDir: tmp, authRateLimit: 100000, publicUrl: 'https://site.test', mailer: { send: async (letter) => { letters.push(letter); } }, sms: { send: async (message) => { texts.push(message); } } });
   await new Promise((resolve) => { server = app.listen(0, resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -1536,5 +1540,91 @@ describe('profile phone', () => {
     const res = await second('/api/auth/profile', { method: 'PUT', body });
     assert.equal(res.status, 409);
     assert.deepEqual([res.data.error, res.data.field], ['phone_taken', 'phone']);
+  });
+});
+
+describe('phone confirmation', () => {
+  const lastCode = () => texts.at(-1).text.match(/\d{6}/)[0];
+
+  it('confirms the phone by SMS code, shows it on the owner\'s ads, and a new number needs a new check', async () => {
+    const owner = await newUser();
+    const { phone } = (await owner('/api/auth/me')).data.user;
+    assert.equal((await owner('/api/auth/me')).data.user.phoneVerified, false);
+    const { id } = (await owner('/api/listings', { method: 'POST', body: form({ phone }) })).data.item;
+    await approve(id);
+    assert.equal((await client()(`/api/listings/${id}`)).data.item.phoneVerified, false);
+
+    const sent = await owner('/api/auth/phone/send', { method: 'POST', json: { lang: 'ru' } });
+    assert.equal(sent.status, 200);
+    assert.equal(texts.at(-1).to, phone);
+    assert.match(texts.at(-1).text, /код подтверждения \d{6}/);
+    // A second code within a minute is refused.
+    assert.equal((await owner('/api/auth/phone/send', { method: 'POST', json: {} })).status, 429);
+
+    const code = lastCode();
+    const wrong = code === '000000' ? '111111' : '000000';
+    const bad = await owner('/api/auth/phone/verify', { method: 'POST', json: { code: wrong } });
+    assert.equal(bad.data.error, 'code_wrong');
+    const good = await owner('/api/auth/phone/verify', { method: 'POST', json: { code } });
+    assert.equal(good.status, 200);
+    assert.equal(good.data.user.phoneVerified, true);
+    assert.equal((await client()(`/api/listings/${id}`)).data.item.phoneVerified, true);
+    // The code works once.
+    assert.equal((await owner('/api/auth/phone/verify', { method: 'POST', json: { code } })).data.error, 'code_expired');
+
+    // An ad with another number gets no mark.
+    const other = (await owner('/api/listings', { method: 'POST', body: form({ phone: '+7 701 999 88 77', address: 'Абылай хана, 1' }) })).data.item;
+    assert.equal(other.phoneVerified, false);
+
+    const data = new FormData();
+    data.append('name', 'Имя Фамилия');
+    data.append('phone', '+7 705 123 45 67');
+    assert.equal((await owner('/api/auth/profile', { method: 'PUT', body: data })).data.user.phoneVerified, false);
+  });
+
+  it('stops guessing after five wrong codes', async () => {
+    const call = await newUser();
+    await call('/api/auth/phone/send', { method: 'POST', json: {} });
+    const code = lastCode();
+    const wrong = code === '000000' ? '111111' : '000000';
+    for (let i = 0; i < 5; i += 1) assert.equal((await call('/api/auth/phone/verify', { method: 'POST', json: { code: wrong } })).data.error, 'code_wrong');
+    assert.equal((await call('/api/auth/phone/verify', { method: 'POST', json: { code } })).data.error, 'code_expired');
+    assert.equal((await client()('/api/auth/phone/send', { method: 'POST', json: {} })).status, 401);
+  });
+});
+
+describe('time to SDU', () => {
+  it('estimates walking and bus time from the distance, and uses a routed walk when there is one', () => {
+    assert.equal(travelTime(null), null);
+    assert.deepEqual(travelTime(1), { walkMin: 17, busMin: 12, routed: false });
+    assert.deepEqual(travelTime(4, { km: 5.1, minutes: 68.3 }), { walkMin: 68, busMin: 25, routed: true });
+  });
+
+  it('routes the walk in the worker, and routes again after the pin moves', async () => {
+    const owner = await newUser();
+    const { id } = (await owner('/api/listings', { method: 'POST', body: form() })).data.item;
+    await approve(id);
+    assert.equal((await client()(`/api/listings/${id}`)).data.item.travel.routed, false);
+    const asked = [];
+    const router = { walkToSdu: async (point) => { asked.push(point); return { km: 2.4, minutes: 31 }; } };
+    const tick = () => createWorker({ db, dgis, log: { warn() {} }, moderator: null, router, wait: async () => {} }).tick();
+    await tick();
+    assert.deepEqual(asked, [{ lat: 43.2, lon: 76.65 }]);
+    assert.deepEqual((await client()(`/api/listings/${id}`)).data.item.travel, { walkMin: 31, busMin: 16, routed: true });
+    await tick();
+    assert.equal(asked.length, 1);
+    await db.run('UPDATE listings SET lat = 43.21 WHERE id = $1', [id]);
+    assert.equal((await client()(`/api/listings/${id}`)).data.item.travel.routed, false);
+    await tick();
+    assert.equal(asked.length, 2);
+  });
+
+  it('reads the OpenStreetMap foot route and treats a missing path as none', async () => {
+    const reply = (body) => async () => new Response(JSON.stringify(body), { status: 200 });
+    const found = await createFootRouter({ fetchImpl: reply({ code: 'Ok', routes: [{ distance: 5120.9, duration: 4099.1 }] }) }).walkToSdu({ lat: 43.2, lon: 76.62 });
+    assert.equal(Math.round(found.km * 10), 51);
+    assert.equal(Math.round(found.minutes), 68);
+    assert.equal(await createFootRouter({ fetchImpl: reply({ code: 'NoRoute' }) }).walkToSdu({ lat: 43.2, lon: 76.62 }), null);
+    await assert.rejects(createFootRouter({ fetchImpl: async () => new Response('busy', { status: 503 }) }).walkToSdu({ lat: 43.2, lon: 76.62 }));
   });
 });

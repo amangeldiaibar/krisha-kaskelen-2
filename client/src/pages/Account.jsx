@@ -255,7 +255,76 @@ function ProfileForm() {
         {error && <p className="error-text" role="alert">{tError(error)}</p>}
         <button className="btn" type="submit">{t('save')}</button>
       </form>
+      <PhoneCheck />
     </section>
+  );
+}
+
+/** Confirms the profile phone with a code by SMS, so the owner's ads show "Phone confirmed". */
+function PhoneCheck() {
+  const { t, tError, lang } = useI18n();
+  const { user, setUser } = useAuth();
+  const toast = useToast();
+  const [sentTo, setSentTo] = useState(null);
+  const [code, setCode] = useState('');
+  const [wait, setWait] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (wait <= 0) return undefined;
+    const timer = setTimeout(() => setWait(wait - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [wait]);
+
+  // A code sent to the old number is useless after the phone changes.
+  useEffect(() => { setSentTo(null); setCode(''); }, [user.phone]);
+
+  if (user.phoneVerified) return <p style={{ marginTop: 16 }}><span className="verified">✓ {t('phoneVerified')}</span></p>;
+
+  async function send() {
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await api('/auth/phone/send', { method: 'POST', body: { lang } });
+      setSentTo(data.phone);
+      setWait(data.resendIn);
+    } catch (failure) {
+      setError(failure);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirm(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await api('/auth/phone/verify', { method: 'POST', body: { code } });
+      setUser(data.user);
+      toast(t('toastPhoneVerified'));
+    } catch (failure) {
+      setError(failure);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="stack" style={{ marginTop: 16 }}>
+      <p className="meta">{sentTo ? t('smsSent', { phone: sentTo }) : t('verifyPhoneText', { phone: user.phone })}</p>
+      {sentTo ? (
+        <form className="phone-check" onSubmit={confirm}>
+          <input type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required aria-label={t('smsCode')} placeholder="000000" value={code} onChange={(event) => { setCode(event.target.value.replace(/\D/g, '')); setError(null); }} />
+          <button className="btn" type="submit" disabled={busy || code.length !== 6}>{t('confirmCode')}</button>
+          <button className="btn ghost small" type="button" onClick={send} disabled={busy || wait > 0}>{wait > 0 ? t('resendIn', { n: wait }) : t('resendCode')}</button>
+        </form>
+      ) : (
+        <div><button className="btn ghost" type="button" onClick={send} disabled={busy}>{t('verifyPhone')}</button></div>
+      )}
+      {error && <p className="error-text" role="alert">{tError(error)}</p>}
+    </div>
   );
 }
 

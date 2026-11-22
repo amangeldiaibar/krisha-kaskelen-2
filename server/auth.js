@@ -6,6 +6,7 @@ const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 export const COOKIE = 'sid';
 /** What the site may show about a user. The profile photo becomes a ready URL. */
 export const USER_COLUMNS = `users.id, users.name, users.phone, users.email, users.role, users.admin_scopes AS "adminScopes",
+  users.phone_verified_at IS NOT NULL AS "phoneVerified",
   CASE WHEN users.avatar IS NULL THEN NULL ELSE '/uploads/' || users.avatar END AS avatar`;
 
 export async function hashPassword(password) {

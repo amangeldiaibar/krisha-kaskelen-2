@@ -121,7 +121,7 @@ export function useI18n() {
 }
 
 const FIELD_LABELS = {
-  title: 'adTitle', deal: 'deal', price: 'priceTenge', rooms: 'rooms', area: 'area', floor: 'floor', floors: 'floorsInBuilding', year: 'yearBuilt', district: 'district', address: 'address', description: 'description', phone: 'phone', name: 'fullName', email: 'email', password: 'password', text: 'reviews', message: 'dealMessage', date: 'dealDateRent', reason: 'adminReason', comment: 'reportComment', query: 'smartTitle', note: 'roommateNote', topic: 'supportTopic', reply: 'supportReply', login: 'phoneOrEmail',
+  title: 'adTitle', deal: 'deal', price: 'priceTenge', rooms: 'rooms', area: 'area', floor: 'floor', floors: 'floorsInBuilding', year: 'yearBuilt', district: 'district', address: 'address', description: 'description', phone: 'phone', name: 'fullName', email: 'email', password: 'password', text: 'reviews', message: 'dealMessage', date: 'dealDateRent', reason: 'adminReason', comment: 'reportComment', query: 'smartTitle', note: 'roommateNote', topic: 'supportTopic', reply: 'supportReply', login: 'phoneOrEmail', code: 'smsCode',
 };
 
 /** Loads data with loading and error states, and drops responses that arrive late. */
