@@ -6,7 +6,7 @@ import multer from 'multer';
 import { rateLimit } from 'express-rate-limit';
 import { SDU, STALE_AFTER_DAYS } from './config.js';
 import { isUniqueViolation } from './db.js';
-import { distanceKm, travelTime } from './geo.js';
+import { distanceKm } from './geo.js';
 import { COOKIE, USER_COLUMNS, canAdmin, createSession, destroySession, hashPassword, loadUser, readCookie, requireUser, tokenHash, verifyPassword } from './auth.js';
 import { createMailer } from './services/mail.js';
 import { createSms } from './services/sms.js';
@@ -131,9 +131,6 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
       db.get('SELECT COUNT(*)::int AS n FROM roommates WHERE listing_id = $1', [row.id]),
       row.user_id ? db.get('SELECT phone, phone_verified_at FROM users WHERE id = $1', [row.user_id]) : null,
     ]);
-    const straightKm = point ? distanceKm(SDU, point) : null;
-    // The routed walk counts only while the pin is where it was routed from.
-    const walk = point && row.walk_for === `${row.lat},${row.lon}` && row.walk_km !== null ? { km: row.walk_km, minutes: row.walk_min } : null;
     return {
       id: row.id,
       title: row.title,
@@ -151,8 +148,7 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
       // The owner's phone is for people who signed in; the link to the original ad is open to all.
       phone: userId ? row.phone : null,
       point,
-      distanceKm: point ? Math.round(straightKm * 10) / 10 : null,
-      travel: travelTime(straightKm, walk),
+      distanceKm: point ? Math.round(distanceKm(SDU, point) * 10) / 10 : null,
       // When the ad was last updated: at its source for imports, on this site for the rest.
       updatedAt: row.refreshed_at ?? row.updated_at,
       source: { type: row.source_type, name: row.source_name, url: row.source_url },

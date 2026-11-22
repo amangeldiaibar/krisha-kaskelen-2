@@ -21,25 +21,3 @@ export function streetPart(address) {
     .replace(/^\s*(?:г\.?\s*)?Каскел[её]н\s*,?\s*/i, '')
     .trim();
 }
-
-// Streets wind, so a walk is about a quarter longer than the straight line.
-const DETOUR = 1.25;
-const WALK_KMH = 4.5;
-// A Kaskelen bus with its stops, plus the walk to the stop and the wait.
-const BUS_KMH = 18;
-const BUS_EXTRA_MIN = 8;
-
-/**
- * Minutes to SDU on foot and by bus. `walk` is the routed walk when known;
- * otherwise both come from the straight-line distance and are marked approximate.
- */
-export function travelTime(straightKm, walk = null) {
-  if (straightKm === null || straightKm === undefined) return null;
-  const roadKm = walk?.km ?? straightKm * DETOUR;
-  const walkMin = walk?.minutes ?? (roadKm / WALK_KMH) * 60;
-  return {
-    walkMin: Math.max(1, Math.round(walkMin)),
-    busMin: Math.round((roadKm / BUS_KMH) * 60 + BUS_EXTRA_MIN),
-    routed: Boolean(walk),
-  };
-}

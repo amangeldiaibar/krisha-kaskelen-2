@@ -16,8 +16,6 @@ import { createOsmGeocoder } from '../services/osm.js';
 import { geocodeQuery, inServiceArea, mentionsServiceArea, placeOf } from '../services/area.js';
 import { createGeminiModerator, createUncheckedModerator, ModerationUnavailable, NO_AI_KEY_REASON } from '../services/moderation.js';
 import { createWorker } from '../services/worker.js';
-import { createFootRouter } from '../services/route.js';
-import { travelTime } from '../geo.js';
 import { addListingPhotos, saveImports } from '../services/importer.js';
 import { cleanPost, groupAlbums, looksLikeRental, postsToListings, toListing } from '../services/telegram.js';
 import { addressKey, compareListings, findDuplicatePairs } from '../services/duplicates.js';
@@ -1593,38 +1591,3 @@ describe('phone confirmation', () => {
   });
 });
 
-describe('time to SDU', () => {
-  it('estimates walking and bus time from the distance, and uses a routed walk when there is one', () => {
-    assert.equal(travelTime(null), null);
-    assert.deepEqual(travelTime(1), { walkMin: 17, busMin: 12, routed: false });
-    assert.deepEqual(travelTime(4, { km: 5.1, minutes: 68.3 }), { walkMin: 68, busMin: 25, routed: true });
-  });
-
-  it('routes the walk in the worker, and routes again after the pin moves', async () => {
-    const owner = await newUser();
-    const { id } = (await owner('/api/listings', { method: 'POST', body: form() })).data.item;
-    await approve(id);
-    assert.equal((await client()(`/api/listings/${id}`)).data.item.travel.routed, false);
-    const asked = [];
-    const router = { walkToSdu: async (point) => { asked.push(point); return { km: 2.4, minutes: 31 }; } };
-    const tick = () => createWorker({ db, dgis, log: { warn() {} }, moderator: null, router, wait: async () => {} }).tick();
-    await tick();
-    assert.deepEqual(asked, [{ lat: 43.2, lon: 76.65 }]);
-    assert.deepEqual((await client()(`/api/listings/${id}`)).data.item.travel, { walkMin: 31, busMin: 16, routed: true });
-    await tick();
-    assert.equal(asked.length, 1);
-    await db.run('UPDATE listings SET lat = 43.21 WHERE id = $1', [id]);
-    assert.equal((await client()(`/api/listings/${id}`)).data.item.travel.routed, false);
-    await tick();
-    assert.equal(asked.length, 2);
-  });
-
-  it('reads the OpenStreetMap foot route and treats a missing path as none', async () => {
-    const reply = (body) => async () => new Response(JSON.stringify(body), { status: 200 });
-    const found = await createFootRouter({ fetchImpl: reply({ code: 'Ok', routes: [{ distance: 5120.9, duration: 4099.1 }] }) }).walkToSdu({ lat: 43.2, lon: 76.62 });
-    assert.equal(Math.round(found.km * 10), 51);
-    assert.equal(Math.round(found.minutes), 68);
-    assert.equal(await createFootRouter({ fetchImpl: reply({ code: 'NoRoute' }) }).walkToSdu({ lat: 43.2, lon: 76.62 }), null);
-    await assert.rejects(createFootRouter({ fetchImpl: async () => new Response('busy', { status: 503 }) }).walkToSdu({ lat: 43.2, lon: 76.62 }));
-  });
-});

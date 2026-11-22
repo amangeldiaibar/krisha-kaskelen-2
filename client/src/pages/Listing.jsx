@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth, useFetch, useI18n, usePolling, useToast } from '../context.jsx';
-import { AdminDeleteButton, CompareButton, LoginForContacts, canAdmin, listingPrice, sourceName, DeleteListingButton, Distance, FavoriteButton, Freshness, PhoneVerified, Travel, HouseArt, ListingsMap, SkeletonCards, SourceBadge, Status, listingLabel } from '../components/Shared.jsx';
+import { AdminDeleteButton, CompareButton, LoginForContacts, canAdmin, listingPrice, sourceName, DeleteListingButton, Distance, FavoriteButton, Freshness, PhoneVerified, HouseArt, ListingsMap, SkeletonCards, SourceBadge, Status, listingLabel } from '../components/Shared.jsx';
 
 const PENDING_POLL_MS = 3000;
 
@@ -571,7 +571,7 @@ export default function Listing() {
           </section>
           <section className="panel">
             <h2>{t('location')}</h2>
-            <p style={{ marginBottom: 8 }}><Distance km={item.distanceKm} /> <Travel travel={item.travel} full /> <Freshness date={item.updatedAt} /></p>
+            <p style={{ marginBottom: 8 }}><Distance km={item.distanceKm} /> <Freshness date={item.updatedAt} /></p>
             <ListingsMap items={[item]} sdu={sdu} height={260} />
           </section>
           <Reviews listing={item} />

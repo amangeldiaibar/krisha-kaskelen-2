@@ -416,9 +416,6 @@ nav button { background: none; border: 0; color: inherit; font: inherit; cursor:
 .distance { color: var(--brand); font-weight: 700; font-size: 0.9rem; }
 .freshness { display: block; color: var(--muted); font-size: 0.85rem; }
 .freshness.old { color: #b35c00; }
-.travel { display: block; color: var(--ink); font-size: 0.88rem; font-weight: 600; }
-.travel.full { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 4px 0; }
-.travel.full small { flex-basis: 100%; color: var(--muted); font-weight: 400; font-size: 0.8rem; }
 .verified { display: inline-block; margin: 4px 0; padding: 2px 8px; border-radius: 999px; background: #e3f5e8; color: #1d7a3a; font-size: 0.8rem; font-weight: 700; }
 .phone-check { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .phone-check input { max-width: 140px; letter-spacing: 0.2em; }

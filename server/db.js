@@ -120,10 +120,8 @@ ALTER TABLE listings ADD COLUMN IF NOT EXISTS refreshed_at timestamptz;
 -- Flats from 3 to 12 km away were once refused; they are shown now, so they get moderated again.
 UPDATE listings SET status = 'pending', moderation_reason = NULL
   WHERE status = 'rejected' AND moderation_reason ~ '^(Квартира дальше 3 км|The flat is more than 3 km|Пәтер SDU-дан 3 км)';
--- The walk to SDU along streets, and the point it was routed from, so a moved pin is routed again.
-ALTER TABLE listings ADD COLUMN IF NOT EXISTS walk_km double precision;
-ALTER TABLE listings ADD COLUMN IF NOT EXISTS walk_min double precision;
-ALTER TABLE listings ADD COLUMN IF NOT EXISTS walk_for text;
+-- Walking times to SDU were tried and dropped as unreliable.
+ALTER TABLE listings DROP COLUMN IF EXISTS walk_km, DROP COLUMN IF EXISTS walk_min, DROP COLUMN IF EXISTS walk_for;
 -- When the owner proved by SMS that the phone is theirs. A new number clears it.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verified_at timestamptz;
 -- SMS codes for that check. Only a hash of the code is kept, and wrong guesses are counted.

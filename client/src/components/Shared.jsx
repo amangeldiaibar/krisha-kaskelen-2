@@ -299,26 +299,6 @@ export function Distance({ km }) {
   return <span className="distance">{km === null ? t('distanceUnknown') : t('distanceSdu', { n: km })}</span>;
 }
 
-// Up to this many minutes on foot a walk is what people choose; beyond it the card shows the bus.
-const WALKABLE_MIN = 25;
-
-/** "12 min walk" or "≈ 25 min by bus" on a card; both, with a note on how they were counted, on the ad page. */
-export function Travel({ travel, full = false }) {
-  const { t } = useI18n();
-  if (!travel) return null;
-  const walk = t('walkTime', { n: travel.walkMin, approx: travel.routed ? '' : '≈ ' });
-  const bus = t('busTime', { n: travel.busMin });
-  // Close by, the wait at the stop makes the bus slower than walking, so it is not offered.
-  const busHelps = travel.busMin < travel.walkMin;
-  if (!full) return <span className="travel">{travel.walkMin <= WALKABLE_MIN || !busHelps ? `🚶 ${walk}` : `🚌 ${bus}`}</span>;
-  return (
-    <span className="travel full">
-      <span>🚶 {walk}</span> {busHelps && <span>🚌 {bus}</span>}
-      <small>{t(travel.routed ? 'travelApprox' : 'travelGuess')}</small>
-    </span>
-  );
-}
-
 /** Shown when the owner proved by SMS that the number in the ad is theirs. */
 export function PhoneVerified({ item }) {
   const { t } = useI18n();
@@ -552,7 +532,6 @@ export function ListingCard({ item, index = 0, onFavoriteChange, onHover, onRemo
         </Link>
         <div className="meta">{heading} · {place}</div>
         <Distance km={item.distanceKm} />
-        <Travel travel={item.travel} />
         <Freshness date={item.updatedAt} />
         <PhoneVerified item={item} />
         <div className="tags">

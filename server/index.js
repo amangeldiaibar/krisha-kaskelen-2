@@ -4,7 +4,6 @@ import { openDatabase } from './open-db.js';
 import { createApp } from './app.js';
 import { createDgis } from './services/dgis.js';
 import { createMailer } from './services/mail.js';
-import { createFootRouter } from './services/route.js';
 import { createSms } from './services/sms.js';
 import { createGeminiModerator, createUncheckedModerator } from './services/moderation.js';
 import { createSearchParser } from './services/search.js';
@@ -38,7 +37,7 @@ if (config.geminiKey) {
 } else if (!config.isProduction) {
   moderator = createUncheckedModerator();
 }
-const worker = createWorker({ db, dgis, moderator, router: createFootRouter() });
+const worker = createWorker({ db, dgis, moderator });
 const runWorker = () => worker.tick().catch((error) => console.error(error));
 
 const app = createApp({
