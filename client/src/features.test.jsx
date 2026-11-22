@@ -397,5 +397,10 @@ describe('chat button', () => {
     fireEvent.change(screen.getByLabelText('Напишите сообщение'), { target: { value: 'Да' } });
     fireEvent.click(screen.getByRole('button', { name: 'Отправить' }));
     await waitFor(() => expect(calls.find((call) => call.path === '/conversations/7/messages' && call.method === 'POST')?.body).toEqual({ text: 'Да' }));
+
+    // Closing plays an animation first, then the window leaves.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Закрыть сообщения' })[0]);
+    expect(screen.getByRole('dialog').className).toContain('closing');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 });

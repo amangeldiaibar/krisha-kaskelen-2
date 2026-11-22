@@ -789,8 +789,16 @@ legend { font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
 .cw-button.open { background: var(--ink); }
 .cw-button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .cw-badge { position: absolute; top: -2px; right: -2px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; background: #e0352b; color: #fff; font-size: 0.75rem; font-weight: 800; display: grid; place-items: center; border: 2px solid #fff; }
+.cw-preview { animation: cw-in 0.26s ease-out; transform-origin: bottom right; }
 .cw-preview { display: grid; gap: 2px; max-width: 280px; padding: 10px 14px; border: 0; border-radius: 14px 14px 4px 14px; background: var(--card); color: var(--ink); text-align: left; font: inherit; cursor: pointer; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18); }
 .cw-preview span { color: var(--muted); font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cw-panel { transform-origin: bottom right; animation: cw-in 0.26s cubic-bezier(0.2, 0.9, 0.3, 1.15); }
+.cw-panel.closing { animation: cw-out 0.22s ease-in forwards; pointer-events: none; }
+@keyframes cw-in { from { opacity: 0; transform: translateY(16px) scale(0.92); } }
+@keyframes cw-out { to { opacity: 0; transform: translateY(16px) scale(0.92); } }
+.cw-x { display: inline-block; animation: cw-spin 0.22s ease-out; }
+@keyframes cw-spin { from { transform: rotate(-90deg); opacity: 0; } }
+.cw-button svg { animation: cw-spin 0.22s ease-out; }
 .cw-panel { width: 370px; height: min(560px, calc(100vh - 120px)); display: flex; flex-direction: column; background: var(--card); border-radius: 16px; overflow: hidden; box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22); }
 .cw-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--brand); color: #fff; }
 .cw-head .avatar { flex: none; }

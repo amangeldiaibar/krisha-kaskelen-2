@@ -7,6 +7,8 @@ import { useAuth, useI18n } from '../context.jsx';
 export const openChat = (id) => window.dispatchEvent(new CustomEvent('chat:open', { detail: { id } }));
 
 const PREVIEW_MS = 6000;
+/** As long as the window's closing animation in style.css. */
+const CLOSE_MS = 220;
 
 function Face({ name, src }) {
   if (src) return <img className="avatar" src={src} alt="" />;
@@ -127,6 +129,9 @@ export default function ChatWidget() {
   const { t } = useI18n();
   const location = useLocation();
   const [open, setOpen] = useState(false);
+  // The window stays on screen while it animates away, then leaves.
+  const [closing, setClosing] = useState(false);
+  const shown = open && !closing;
   const [active, setActive] = useState(null);
   const [chats, setChats] = useState(null);
   const [unread, setUnread] = useState(0);
@@ -172,10 +177,21 @@ export default function ChatWidget() {
     return () => clearTimeout(timer);
   }, [preview]);
 
+  const hide = useCallback(() => setClosing(true), []);
+  useEffect(() => {
+    if (!closing) return undefined;
+    const timer = setTimeout(() => {
+      setOpen(false);
+      setClosing(false);
+    }, CLOSE_MS);
+    return () => clearTimeout(timer);
+  }, [closing]);
+
   useEffect(() => {
     const show = (event) => {
       setActive(event.detail?.id ?? null);
       setOpen(true);
+      setClosing(false);
       setPreview(null);
       reload();
     };
@@ -184,25 +200,25 @@ export default function ChatWidget() {
   }, [reload]);
 
   useEffect(() => {
-    if (!open) return undefined;
-    const close = (event) => { if (event.key === 'Escape') setOpen(false); };
+    if (!shown) return undefined;
+    const close = (event) => { if (event.key === 'Escape') hide(); };
     document.addEventListener('keydown', close);
     return () => document.removeEventListener('keydown', close);
-  }, [open]);
+  }, [shown, hide]);
 
   if (!user || onChatsPage) return null;
 
   return (
     <div className="cw">
       {open && (
-        <section className="cw-panel pop" role="dialog" aria-label={t('chats')}>
+        <section className={`cw-panel${closing ? ' closing' : ''}`} role="dialog" aria-label={t('chats')}>
           {active ? (
-            <Thread id={active} onBack={() => { setActive(null); reload(); }} onClose={() => setOpen(false)} onRead={reload} />
+            <Thread id={active} onBack={() => { setActive(null); reload(); }} onClose={hide} onRead={reload} />
           ) : (
             <>
               <div className="cw-head">
                 <b className="cw-title">{t('chats')}</b>
-                <button type="button" className="cw-icon" onClick={() => setOpen(false)} aria-label={t('closeChats')}>×</button>
+                <button type="button" className="cw-icon" onClick={hide} aria-label={t('closeChats')}>×</button>
               </div>
               <ChatList items={chats} onPick={setActive} />
             </>
@@ -210,22 +226,28 @@ export default function ChatWidget() {
         </section>
       )}
       {preview && !open && (
-        <button type="button" className="cw-preview pop" onClick={() => openChat(preview.conversationId)}>
+        <button type="button" className="cw-preview" onClick={() => openChat(preview.conversationId)}>
           <b>{t('newMessageFrom', { name: preview.senderName })}</b>
           <span>{preview.text}</span>
         </button>
       )}
       <button
         type="button"
-        className={`cw-button${open ? ' open' : ''}`}
-        onClick={() => { setOpen(!open); setPreview(null); if (!open) reload(); }}
-        aria-label={open ? t('closeChats') : unread ? t('unreadCount', { n: unread }) : t('openChats')}
-        aria-expanded={open}
+        className={`cw-button${shown ? ' open' : ''}`}
+        onClick={() => {
+          setPreview(null);
+          if (shown) return hide();
+          setOpen(true);
+          setClosing(false);
+          reload();
+        }}
+        aria-label={shown ? t('closeChats') : unread ? t('unreadCount', { n: unread }) : t('openChats')}
+        aria-expanded={shown}
       >
-        {open ? '×' : (
+        {shown ? <span className="cw-x">×</span> : (
           <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path fill="currentColor" d="M12 3C6.5 3 2 6.8 2 11.5c0 2.4 1.2 4.6 3.1 6.1L4 21l4.1-2.1c1.2.4 2.5.6 3.9.6 5.5 0 10-3.8 10-8.5S17.5 3 12 3z" /></svg>
         )}
-        {!open && unread > 0 && <span className="cw-badge">{unread > 99 ? '99+' : unread}</span>}
+        {!shown && unread > 0 && <span className="cw-badge">{unread > 99 ? '99+' : unread}</span>}
       </button>
     </div>
   );
