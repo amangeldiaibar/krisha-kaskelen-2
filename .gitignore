@@ -7,3 +7,5 @@ data/
 .DS_Store
 krisha_kaskelen.csv
 photos/
+__pycache__/
+*.pyc
