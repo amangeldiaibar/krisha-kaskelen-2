@@ -433,9 +433,22 @@ export function AdminDeleteButton({ id, onDone, className = 'btn ghost small' })
   );
 }
 
+/** Sends a guest to sign in and brings them back to this page; contacts are for signed-in people. */
+export function LoginForContacts({ className = 'btn', children }) {
+  const { t, path } = useI18n();
+  const location = useLocation();
+  return (
+    <Link className={className} to={path('/login')} state={{ from: location.pathname + location.search, reason: 'contacts' }} title={t('loginForContacts')}>
+      {children ?? t('login')}
+    </Link>
+  );
+}
+
 export function DealCardButton({ item }) {
   const { t, path } = useI18n();
+  const { user } = useAuth();
   if (item.dealStatus === 'closed') return <span className="status rejected">{t(`closed_${item.deal}`)}</span>;
+  if (item.source.type === 'import' && !user) return <LoginForContacts className="btn small">{t('openShort')}</LoginForContacts>;
   if (item.source.type === 'import') {
     return <a className="btn small" href={item.source.url} target="_blank" rel="noopener noreferrer nofollow" title={t('openOnSource', { name: sourceName(item.source) })}>{t('openShort')}</a>;
   }

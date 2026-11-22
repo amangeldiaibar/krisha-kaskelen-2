@@ -4,6 +4,8 @@ import { api } from '../api.js';
 import { useFetch, useI18n } from '../context.jsx';
 import { CountUp, ListingCard, ListingsMap, NumberInput, Pager, SkeletonCards, Status, formatPrice } from '../components/Shared.jsx';
 
+/** Sample prices in the empty price fields: sale prices in Kaskelen start around 2.5 million tenge. */
+const PRICE_HINTS = { rent: { from: '0', to: '500000' }, buy: { from: '2500000', to: '60000000' } };
 const FILTERS = ['deal', 'rooms', 'priceFrom', 'priceTo', 'yearFrom', 'yearTo', 'district', 'maxKm', 'features', 'sort', 'q'];
 const FEATURES = ['furniture', 'pets', 'internet', 'washer', 'parking', 'balcony', 'conditioner'];
 const DISTANCES = ['1', '1.5', '3'];
@@ -183,8 +185,8 @@ export default function Home() {
             </select>
           </label>
           <div className="row">
-            <label>{t('priceFrom')}<NumberInput name="priceFrom" maxDigits={PRICE_DIGITS} placeholder="0" value={values.priceFrom} onChange={change} /></label>
-            <label>{t('priceTo')}<NumberInput name="priceTo" maxDigits={PRICE_DIGITS} placeholder="500000" value={values.priceTo} onChange={change} /></label>
+            <label>{t('priceFrom')}<NumberInput name="priceFrom" maxDigits={PRICE_DIGITS} placeholder={PRICE_HINTS[values.deal === 'buy' ? 'buy' : 'rent'].from} value={values.priceFrom} onChange={change} /></label>
+            <label>{t('priceTo')}<NumberInput name="priceTo" maxDigits={PRICE_DIGITS} placeholder={PRICE_HINTS[values.deal === 'buy' ? 'buy' : 'rent'].to} value={values.priceTo} onChange={change} /></label>
           </div>
           <div className="row">
             <label>{t('builtFrom')}<NumberInput name="yearFrom" maxDigits={YEAR_DIGITS} placeholder="2000" value={values.yearFrom} onChange={change} /></label>

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth, useFetch, useI18n, usePolling, useToast } from '../context.jsx';
-import { AdminDeleteButton, CompareButton, sourceName, DeleteListingButton, Distance, FavoriteButton, HouseArt, ListingsMap, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
+import { AdminDeleteButton, CompareButton, LoginForContacts, sourceName, DeleteListingButton, Distance, FavoriteButton, HouseArt, ListingsMap, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
 
 const PENDING_POLL_MS = 3000;
 
@@ -186,6 +186,9 @@ function DealPanel({ item, onChanged }) {
         {item.isOwner && <button className="btn ghost" type="button" onClick={() => run(`/listings/${item.id}/reopen`, 'toastReopened')}>{t('reopen')}</button>}
       </div>
     );
+  }
+  if (!user) {
+    return <LoginForContacts className="btn full" />;
   }
   if (item.source.type === 'import') {
     return <a className="btn full" href={item.source.url} target="_blank" rel="noopener noreferrer nofollow">{t('openOnSource', { name: sourceName(item.source) })}</a>;
@@ -464,6 +467,15 @@ function ContactPanel({ item }) {
     }
   }
 
+  if (!user) {
+    return (
+      <section className="panel">
+        <h2>{t(item.source.type === 'import' ? 'contacts' : 'owner')}</h2>
+        <p className="meta">{t('loginForContacts')}</p>
+        <div className="actions"><LoginForContacts /></div>
+      </section>
+    );
+  }
   if (item.source.type === 'import') {
     return (
       <section className="panel">
@@ -534,7 +546,9 @@ export default function Listing() {
                     {index > 0 && ', '}
                     {copy.source.url
                       ? <a className="link" href={copy.source.url} target="_blank" rel="noopener noreferrer nofollow">{sourceName(copy.source)}</a>
-                      : <Link className="link" to={path(`/listing/${copy.id}`)}>{t('sourceApp')}</Link>}
+                      : copy.source.type === 'import'
+                        ? <span>{sourceName(copy.source)}</span>
+                        : <Link className="link" to={path(`/listing/${copy.id}`)}>{t('sourceApp')}</Link>}
                   </span>
                 ))}
               </p>

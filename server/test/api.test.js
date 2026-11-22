@@ -184,7 +184,7 @@ describe('auth', () => {
 });
 
 describe('listings', () => {
-  it('needs a login, stays hidden until approved, then shows phone and distance to guests', async () => {
+  it('needs a login, stays hidden until approved, then shows distance to guests and the phone after sign-in', async () => {
     assert.equal((await client()('/api/listings', { method: 'POST', body: form() })).status, 401);
     const owner = await newUser();
     const created = await owner('/api/listings', { method: 'POST', body: form() });
@@ -197,10 +197,25 @@ describe('listings', () => {
     assert.equal((await owner(`/api/listings/${id}`)).status, 200);
     await approve(id);
     const [item] = (await guest('/api/listings')).data.items;
-    assert.equal(item.phone, '+7 700 111 22 33');
+    assert.equal(item.phone, null);
     assert.ok(item.distanceKm > 0);
     assert.deepEqual(item.point, { lat: 43.2, lon: 76.65 });
     assert.equal(item.source.type, 'app');
+    const reader = await newUser();
+    assert.equal((await reader(`/api/listings/${id}`)).data.item.phone, '+7 700 111 22 33');
+  });
+
+  it('shows the link to the original ad only after sign-in', async () => {
+    await db.run(
+      `INSERT INTO listings (source_type, source_name, source_url, title, deal, description, status, lat, lon)
+       VALUES ('import', 'krisha.kz', 'https://krisha.kz/a/show/555', 'k', 'buy', 'd', 'approved', 43.2, 76.65)`,
+    );
+    const { id } = await db.get(`SELECT id FROM listings WHERE source_url = 'https://krisha.kz/a/show/555'`);
+    const asGuest = (await client()(`/api/listings/${id}`)).data.item;
+    assert.equal(asGuest.source.url, null);
+    assert.equal(asGuest.source.name, 'krisha.kz');
+    const reader = await newUser();
+    assert.equal((await reader(`/api/listings/${id}`)).data.item.source.url, 'https://krisha.kz/a/show/555');
   });
 
   it('rejects unknown addresses but saves when 2GIS is down', async () => {

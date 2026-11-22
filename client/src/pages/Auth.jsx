@@ -28,7 +28,7 @@ export function Login() {
   return (
     <main className="wrap auth">
       <h1>{t('login')}</h1>
-      <p className="meta">{t('loginIntro')}</p>
+      <p className="meta">{location.state?.reason === 'contacts' ? t('loginForContacts') : t('loginIntro')}</p>
       <section className="panel">
         <form className="stack" onSubmit={submit}>
           <label>{t('phoneOrEmail')}<input type="text" name="login" value={values.login} onChange={change} required maxLength={200} autoComplete="username" /></label>

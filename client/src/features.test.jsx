@@ -246,8 +246,16 @@ describe('admin panel', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Удалить' })).toBeNull());
   });
 
+  it('sends a guest to sign in before opening the original ad', async () => {
+    mockApi({ '/auth/me': { user: null }, '/listings': { sdu: { lat: 43.2, lon: 76.6 }, items: [item({ id: 5, source: { type: 'import', name: 't.me/x', url: null } })] } });
+    show('/ru', <Home />, '/:lang');
+    const open = await screen.findByRole('link', { name: 'Открыть' });
+    expect(open.getAttribute('href')).toBe('/ru/login');
+    expect(open.getAttribute('title')).toBe('Войдите, чтобы увидеть контакты и ссылку на объявление.');
+  });
+
   it('names Telegram channels simply as Telegram and keeps the open button short', async () => {
-    mockApi({ '/auth/me': { user: null }, '/listings': { sdu: { lat: 43.2, lon: 76.6 }, items: [item({ id: 5 })] } });
+    mockApi({ '/auth/me': { user: { id: 2, name: 'Dias', role: 'user' } }, '/listings': { sdu: { lat: 43.2, lon: 76.6 }, items: [item({ id: 5 })] } });
     show('/ru', <Home />, '/:lang');
     expect(await screen.findByText('Источник: Telegram')).toBeTruthy();
     const open = screen.getByRole('link', { name: 'Открыть' });
