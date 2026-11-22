@@ -105,6 +105,14 @@ python -m krisha export
 cd .. && npm run import:krisha-parser
 ```
 
+When krisha.kz blocks the parser (status 468), save the search pages from your browser instead (for sales: https://krisha.kz/prodazha/kvartiry/kaskelen/, then `?page=2` and so on) into one folder and read them without any requests to krisha.kz:
+
+```bash
+python -m krisha import-html data/saved --city kaskelen --deal sale
+```
+
+Then run `photos --expand`, `export` and `npm run import:krisha-parser` as above.
+
 An older CSV file with a `photos` folder in the project folder loads the same way:
 
 ```bash

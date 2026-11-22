@@ -18,6 +18,11 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--deal", choices=list(config.DEALS), default="rent")
     c.add_argument("--max-pages", type=int, default=None)
 
+    ih = sub.add_parser("import-html", help="read search pages saved from a browser (no network)")
+    ih.add_argument("paths", nargs="+", help="saved .html files or folders with them")
+    ih.add_argument("--city", choices=list(config.CITY_PATHS), required=True)
+    ih.add_argument("--deal", choices=list(config.DEALS), default="rent")
+
     d = sub.add_parser("details", help="fetch + parse detail pages (Playwright)")
     d.add_argument("--city", choices=list(config.CITY_PATHS), default=None)
     d.add_argument("--limit", type=int, default=None)
@@ -57,6 +62,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "crawl":
             from .commands import crawl
             crawl.run(db, ctrl, args.city, args.max_pages, args.deal)
+        elif args.command == "import-html":
+            from .commands import import_html
+            import_html.run(db, args.paths, args.city, args.deal)
         elif args.command == "details":
             from .commands import details
             details.run(db, ctrl, args.city, args.limit, args.refresh_missing, args.cached_only)
