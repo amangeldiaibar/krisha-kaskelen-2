@@ -91,7 +91,14 @@ npm run admin -- you@example.com
 
 A phone number works too. Add `--remove` to take the rights away. The admin panel then appears in the profile menu. The database must be running.
 
-After that, admins make others admins on the site, as in a Telegram channel: **Users** in the admin panel → **Make admin**, and **Remove from admins** to take it back. Nobody can change their own rights.
+After that, admins make others admins on the site, as in a Telegram channel: **Users** in the admin panel → **Make admin**, then tick the sections the new admin gets:
+
+- **Ads and the site:** moderation, deleting ads, duplicates and reports;
+- **Reviews;**
+- **Support messages;**
+- **Users:** blocking.
+
+An admin with every section ticked can also make admins and read the log. **Change access** edits an admin's sections, and **Remove from admins** takes the rights away. Nobody can change their own rights. The server enforces the sections, so a limited admin gets "forbidden" from any other part of the panel. Admins made with `npm run admin` get every section.
 
 ## Ads from krisha.kz
 

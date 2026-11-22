@@ -5,7 +5,7 @@ const scrypt = promisify(crypto.scrypt);
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 export const COOKIE = 'sid';
 /** What the site may show about a user. The profile photo becomes a ready URL. */
-export const USER_COLUMNS = `users.id, users.name, users.phone, users.email, users.role,
+export const USER_COLUMNS = `users.id, users.name, users.phone, users.email, users.role, users.admin_scopes AS "adminScopes",
   CASE WHEN users.avatar IS NULL THEN NULL ELSE '/uploads/' || users.avatar END AS avatar`;
 
 export async function hashPassword(password) {
@@ -60,6 +60,16 @@ export function loadUser(db) {
 export function requireUser(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'auth_required' });
   next();
+}
+
+/** Admin panel sections that can be given to an admin one by one. */
+export const ADMIN_SECTIONS = ['listings', 'reviews', 'support', 'users'];
+
+/** Whether an admin may work in a section. A null section is only for admins with every section. */
+export function canAdmin(user, section) {
+  if (user?.role !== 'admin') return false;
+  if (!user.adminScopes) return true;
+  return section !== null && user.adminScopes.includes(section);
 }
 
 export function requireAdmin(req, res, next) {

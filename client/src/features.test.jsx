@@ -306,7 +306,36 @@ describe('admin panel', () => {
     fireEvent.click(buttons[0]);
     expect(screen.getByText('Назначить Аружан администратором?')).toBeTruthy();
     fireEvent.click(screen.getAllByRole('button', { name: 'Назначить администратором' }).at(-1));
-    await waitFor(() => expect(calls.find((call) => call.path === '/admin/users/2/admin')?.body).toEqual({ admin: true }));
+    await waitFor(() => expect(calls.find((call) => call.path === '/admin/users/2/admin')?.body).toEqual({ admin: true, sections: ['listings', 'reviews', 'support', 'users'] }));
+  });
+
+  it('gives a new admin only the ticked sections, and hides other tabs from them', async () => {
+    const calls = mockApi({
+      '/auth/me': { user: { id: 1, name: 'Admin', role: 'admin' } },
+      '/admin/overview': { pendingListings: 0, rejectedListings: 0, liveListings: 3, pendingReviews: 0, rejectedReviews: 0, openReports: 0, openTickets: 0, users: 2, blockedUsers: 0, duplicatePairs: 0, sources: {} },
+      '/admin/users/2/admin': { role: 'admin', sections: ['reviews'] },
+      '/admin/users': { items: [
+        { id: 2, name: 'Аружан', email: 'b@x.kz', phone: '+77001112244', role: 'user', adminSections: [], blocked: false, createdAt: '2026-11-20T10:00:00Z', listingCount: 1, reportCount: 0, isMe: false },
+      ] },
+    });
+    show('/ru/admin?tab=users', <Admin />, '/:lang/admin');
+    fireEvent.click(await screen.findByRole('button', { name: 'Назначить администратором' }));
+    for (const name of ['Объявления и экран: модерация, удаление, дубликаты, жалобы', 'Обращения в службу заботы', 'Пользователи: блокировка']) {
+      fireEvent.click(screen.getByLabelText(name));
+    }
+    fireEvent.click(screen.getAllByRole('button', { name: 'Назначить администратором' }).at(-1));
+    await waitFor(() => expect(calls.find((call) => call.path === '/admin/users/2/admin')?.body).toEqual({ admin: true, sections: ['reviews'] }));
+  });
+
+  it('shows a limited admin only their tabs', async () => {
+    mockApi({
+      '/auth/me': { user: { id: 3, name: 'Helper', role: 'admin', adminScopes: ['reviews'] } },
+      '/admin/overview': { pendingListings: 1, rejectedListings: 0, liveListings: 3, pendingReviews: 2, rejectedReviews: 0, openReports: 0, openTickets: 0, users: 2, blockedUsers: 0, duplicatePairs: 0, sources: {} },
+    });
+    show('/ru/admin', <Admin />, '/:lang/admin');
+    expect(await screen.findByRole('button', { name: /Отзывы/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Пользователи/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Объявления/ })).toBeNull();
   });
 
   it('shows counts and merges a duplicate pair', async () => {

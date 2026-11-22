@@ -7,7 +7,7 @@ import { rateLimit } from 'express-rate-limit';
 import { SDU } from './config.js';
 import { isUniqueViolation } from './db.js';
 import { distanceKm } from './geo.js';
-import { COOKIE, USER_COLUMNS, createSession, destroySession, hashPassword, loadUser, readCookie, requireUser, tokenHash, verifyPassword } from './auth.js';
+import { COOKIE, USER_COLUMNS, canAdmin, createSession, destroySession, hashPassword, loadUser, readCookie, requireUser, tokenHash, verifyPassword } from './auth.js';
 import { createMailer } from './services/mail.js';
 import { normalizePhone } from '../shared/phones.js';
 import { sniffImage } from './images.js';
@@ -167,7 +167,7 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
     const row = await db.get('SELECT * FROM listings WHERE id = $1', [idParam(id)]);
     if (!row) throw new HttpError(404, 'not_found');
     // Admins see ads at every stage, so they can check them before deciding.
-    if (row.status !== 'approved' && row.user_id !== user?.id && user?.role !== 'admin') throw new HttpError(404, 'not_found');
+    if (row.status !== 'approved' && row.user_id !== user?.id && !canAdmin(user, 'listings')) throw new HttpError(404, 'not_found');
     return row;
   };
 
@@ -444,7 +444,7 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
     res.json({
       sdu: { lat: SDU.lat, lon: SDU.lon },
       item: {
-        ...(await present(row, req.user?.id, row.user_id === req.user?.id || req.user?.role === 'admin')),
+        ...(await present(row, req.user?.id, row.user_id === req.user?.id || canAdmin(req.user, 'listings'))),
         alsoPublished: copies.map((copy) => ({ id: copy.id, source: { type: copy.source_type, name: copy.source_name, url: req.user ? copy.source_url : null } })),
       },
     });

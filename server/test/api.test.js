@@ -1417,6 +1417,34 @@ describe('making admins', () => {
     await admin(`/api/admin/users/${personId}/block`, { method: 'POST', json: { blocked: true } });
     assert.equal((await admin(`/api/admin/users/${personId}/admin`, { method: 'POST', json: { admin: true } })).data.error, 'user_blocked');
   });
+
+  it('gives an admin only the sections ticked', async () => {
+    const admin = await newAdmin();
+    const helper = await newUser();
+    const helperId = await idOf(helper);
+    const given = await admin(`/api/admin/users/${helperId}/admin`, { method: 'POST', json: { admin: true, sections: ['reviews'] } });
+    assert.deepEqual(given.data.sections, ['reviews']);
+    assert.deepEqual((await helper('/api/auth/me')).data.user.adminScopes, ['reviews']);
+
+    assert.equal((await helper('/api/admin/overview')).status, 200);
+    assert.equal((await helper('/api/admin/reviews')).status, 200);
+    assert.equal((await helper('/api/admin/listings')).status, 403);
+    assert.equal((await helper('/api/admin/users')).status, 403);
+    assert.equal((await helper('/api/admin/support')).status, 403);
+    assert.equal((await helper('/api/admin/log')).status, 403);
+    // Only an admin with every section appoints admins.
+    const other = await newUser();
+    assert.equal((await helper(`/api/admin/users/${await idOf(other)}/admin`, { method: 'POST', json: { admin: true } })).status, 403);
+
+    const row = (await admin('/api/admin/users')).data.items.find((item) => item.id === helperId);
+    assert.deepEqual(row.adminSections, ['reviews']);
+    assert.equal((await admin(`/api/admin/users/${helperId}/admin`, { method: 'POST', json: { admin: true, sections: [] } })).data.error, 'no_sections');
+
+    // Ticking every section gives full rights again.
+    await admin(`/api/admin/users/${helperId}/admin`, { method: 'POST', json: { admin: true, sections: ['listings', 'reviews', 'support', 'users'] } });
+    assert.equal((await helper('/api/auth/me')).data.user.adminScopes, null);
+    assert.equal((await helper('/api/admin/log')).status, 200);
+  });
 });
 
 describe('forgot password', () => {

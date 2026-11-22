@@ -5,6 +5,16 @@ import { LANGS, LANG_LABELS, translate } from '../i18n.js';
 import { useAuth, useCompare, useFetch, useI18n, usePolling, useToast } from '../context.jsx';
 import { COUNTRIES, countryByIso, countryOf, flagOf, formatNational, nationalOf, nationalPattern, phoneExample } from '../phone.js';
 
+/** Admin panel sections an admin may get one by one; matches the server. */
+export const ADMIN_SECTIONS = ['listings', 'reviews', 'support', 'users'];
+
+/** Whether an admin may work in a section. A null section is only for admins with every section. */
+export function canAdmin(user, section) {
+  if (user?.role !== 'admin') return false;
+  if (!user.adminScopes) return true;
+  return section !== null && user.adminScopes.includes(section);
+}
+
 export function Layout() {
   const { lang } = useParams();
   if (!LANGS.includes(lang)) return <Navigate to="/" replace />;
@@ -515,7 +525,7 @@ export function ListingCard({ item, index = 0, onFavoriteChange, onHover, onRemo
         <div className="card-foot">
           <SourceBadge source={item.source} />
           <DealCardButton item={item} />
-          {user?.role === 'admin' && <AdminDeleteButton id={item.id} onDone={onRemoved} className="btn danger small" />}
+          {canAdmin(user, 'listings') && <AdminDeleteButton id={item.id} onDone={onRemoved} className="btn danger small" />}
         </div>
       </div>
     </article>

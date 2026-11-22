@@ -107,6 +107,8 @@ CREATE TABLE IF NOT EXISTS dgis_cache (
 -- Columns added after the first release. ADD COLUMN IF NOT EXISTS upgrades older databases in place.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'user' CHECK (role IN ('user','admin'));
 ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_at timestamptz;
+-- Admin panel sections an admin may open; NULL means every section.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_scopes text[];
 -- A confirmed duplicate points at the ad that stays visible, and leaves the search.
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS duplicate_of integer REFERENCES listings(id) ON DELETE SET NULL;
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS moderated_by integer REFERENCES users(id) ON DELETE SET NULL;

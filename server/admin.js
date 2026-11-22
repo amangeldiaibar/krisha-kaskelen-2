@@ -1,4 +1,4 @@
-import { requireAdmin } from './auth.js';
+import { ADMIN_SECTIONS, canAdmin, requireAdmin } from './auth.js';
 import { SDU } from './config.js';
 import { distanceKm } from './geo.js';
 import { HttpError, fieldError, idParam, toInt } from './http.js';
@@ -110,6 +110,19 @@ export function registerAdminRoutes(app, { db, removeFiles, onContentChanged }) 
   };
 
   app.use('/api/admin', requireAdmin);
+  // Each part of the panel belongs to a section; the log is only for admins with every section.
+  const SECTION_PATHS = [
+    ['/api/admin/listings', 'listings'],
+    ['/api/admin/duplicates', 'listings'],
+    ['/api/admin/reports', 'listings'],
+    ['/api/admin/reviews', 'reviews'],
+    ['/api/admin/support', 'support'],
+    ['/api/admin/users', 'users'],
+    ['/api/admin/log', null],
+  ];
+  for (const [prefix, section] of SECTION_PATHS) {
+    app.use(prefix, (req, res, next) => (canAdmin(req.user, section) ? next() : res.status(403).json({ error: 'forbidden' })));
+  }
 
   app.get('/api/admin/overview', async (_req, res) => {
     const [counts, sources, pairs] = await Promise.all([
@@ -316,7 +329,7 @@ export function registerAdminRoutes(app, { db, removeFiles, onContentChanged }) 
   app.get('/api/admin/users', async (req, res) => {
     const text = String(req.query.q ?? '').trim().slice(0, 100);
     const rows = await db.all(
-      `SELECT users.id, users.name, users.phone, users.email, users.role, users.blocked_at, users.created_at,
+      `SELECT users.id, users.name, users.phone, users.email, users.role, users.admin_scopes, users.blocked_at, users.created_at,
          (SELECT COUNT(*) FROM listings WHERE listings.user_id = users.id) AS listing_count,
          (SELECT COUNT(*) FROM reports JOIN listings ON listings.id = reports.listing_id WHERE listings.user_id = users.id AND reports.status != 'dismissed') AS report_count
        FROM users
@@ -331,6 +344,7 @@ export function registerAdminRoutes(app, { db, removeFiles, onContentChanged }) 
         phone: row.phone,
         email: row.email,
         role: row.role,
+        adminSections: row.role === 'admin' ? (row.admin_scopes ?? ADMIN_SECTIONS) : [],
         blocked: Boolean(row.blocked_at),
         createdAt: row.created_at,
         listingCount: row.listing_count,
@@ -355,18 +369,23 @@ export function registerAdminRoutes(app, { db, removeFiles, onContentChanged }) 
     res.json({ blocked });
   });
 
-  // Like a Telegram channel: any admin can make someone an admin or take the rights away, but never their own.
+  // Like a Telegram channel: an admin with every section makes someone an admin, chooses which
+  // sections they get, or takes the rights away, but never changes their own.
   app.post('/api/admin/users/:id/admin', async (req, res) => {
+    if (!canAdmin(req.user, null)) throw new HttpError(403, 'forbidden');
     const row = await db.get('SELECT id, role, blocked_at FROM users WHERE id = $1', [idParam(req.params.id)]);
     if (!row) throw new HttpError(404, 'not_found');
     if (row.id === req.user.id) throw new HttpError(403, 'cannot_change_self');
     const admin = req.body?.admin === true;
     if (admin && row.blocked_at) throw new HttpError(409, 'user_blocked');
+    const sections = Array.isArray(req.body?.sections) ? ADMIN_SECTIONS.filter((name) => req.body.sections.includes(name)) : ADMIN_SECTIONS;
+    if (admin && sections.length === 0) throw new HttpError(422, 'no_sections');
+    const scopes = admin && sections.length < ADMIN_SECTIONS.length ? sections : null;
     await db.transaction(async (tx) => {
-      await tx.run('UPDATE users SET role = $1 WHERE id = $2', [admin ? 'admin' : 'user', row.id]);
-      await log(tx, req.user.id, admin ? 'promote' : 'demote', 'user', row.id);
+      await tx.run('UPDATE users SET role = $1, admin_scopes = $2 WHERE id = $3', [admin ? 'admin' : 'user', scopes, row.id]);
+      await log(tx, req.user.id, admin ? 'promote' : 'demote', 'user', row.id, scopes ? scopes.join(', ') : null);
     });
-    res.json({ role: admin ? 'admin' : 'user' });
+    res.json({ role: admin ? 'admin' : 'user', sections: admin ? sections : [] });
   });
 
   // Support messages from the support page

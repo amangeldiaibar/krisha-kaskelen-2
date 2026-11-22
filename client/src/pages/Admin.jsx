@@ -3,9 +3,11 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth, useFetch, useI18n, useToast } from '../context.jsx';
 import { SUPPORT_TOPICS } from './Support.jsx';
-import { AdminDeleteButton, HouseArt, RequireLogin, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
+import { ADMIN_SECTIONS, AdminDeleteButton, HouseArt, RequireLogin, canAdmin, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
 
 const TABS = ['overview', 'listings', 'duplicates', 'reports', 'reviews', 'support', 'users', 'log'];
+/** The section each tab needs. Everyone sees the overview; the log needs every section. */
+const TAB_SECTION = { listings: 'listings', duplicates: 'listings', reports: 'listings', reviews: 'reviews', support: 'support', users: 'users', log: null };
 const LOCALES = { ru: 'ru-RU', kk: 'kk-KZ', en: 'en-GB' };
 
 function useDate() {
@@ -84,24 +86,26 @@ function Decision({ item }) {
 
 function Overview({ data, onOpen }) {
   const { t } = useI18n();
+  const { user } = useAuth();
+  // [label, number, tab, filters, urgent]; only tiles for tabs this admin may open.
   const tiles = [
-    ['ov_pending', data.pendingListings, () => onOpen('listings', { status: 'pending' }), data.pendingListings > 0],
-    ['ov_reports', data.openReports, () => onOpen('reports'), data.openReports > 0],
-    ['ov_duplicates', data.duplicatePairs, () => onOpen('duplicates'), data.duplicatePairs > 0],
-    ['ov_reviews', data.pendingReviews, () => onOpen('reviews', { status: 'pending' }), data.pendingReviews > 0],
-    ['ov_tickets', data.openTickets, () => onOpen('support'), data.openTickets > 0],
-    ['ov_live', data.liveListings, () => onOpen('listings', { status: 'approved' })],
-    ['ov_rejected', data.rejectedListings, () => onOpen('listings', { status: 'rejected' })],
-    ['ov_users', data.users, () => onOpen('users')],
-    ['ov_blocked', data.blockedUsers, () => onOpen('users')],
-  ];
+    ['ov_pending', data.pendingListings, 'listings', { status: 'pending' }, data.pendingListings > 0],
+    ['ov_reports', data.openReports, 'reports', {}, data.openReports > 0],
+    ['ov_duplicates', data.duplicatePairs, 'duplicates', {}, data.duplicatePairs > 0],
+    ['ov_reviews', data.pendingReviews, 'reviews', { status: 'pending' }, data.pendingReviews > 0],
+    ['ov_tickets', data.openTickets, 'support', {}, data.openTickets > 0],
+    ['ov_live', data.liveListings, 'listings', { status: 'approved' }],
+    ['ov_rejected', data.rejectedListings, 'listings', { status: 'rejected' }],
+    ['ov_users', data.users, 'users', {}],
+    ['ov_blocked', data.blockedUsers, 'users', {}],
+  ].filter(([, , tab]) => canAdmin(user, TAB_SECTION[tab]));
   const sources = Object.entries(data.sources);
   const most = Math.max(1, ...sources.map(([, n]) => n));
   return (
     <>
       <div className="tiles">
-        {tiles.map(([key, value, open, urgent]) => (
-          <button key={key} type="button" className={`tile${urgent ? ' urgent' : ''}`} onClick={open}>
+        {tiles.map(([key, value, tab, filters, urgent]) => (
+          <button key={key} type="button" className={`tile${urgent ? ' urgent' : ''}`} onClick={() => onOpen(tab, filters)}>
             <span className="tile-value">{value}</span>
             <span className="tile-label">{t(key)}</span>
           </button>
@@ -406,6 +410,8 @@ function TicketCard({ ticket, date, onDone }) {
 
 function UsersTab({ params, setFilter }) {
   const { t } = useI18n();
+  const { user } = useAuth();
+  const canAppoint = canAdmin(user, null);
   const date = useDate();
   const [q, setQ] = useState(params.q ?? '');
   const { data, loading, error, reload } = useFetch(`/admin/users${params.q ? `?q=${encodeURIComponent(params.q)}` : ''}`);
@@ -427,11 +433,14 @@ function UsersTab({ params, setFilter }) {
               {person.isMe && <span className="meta"> ({t('you')})</span>}
               {person.role === 'admin' && <span className="status approved">{t('roleAdmin')}</span>}
               {person.blocked && <span className="status rejected">{t('blockedLabel')}</span>}
+              {person.role === 'admin' && person.adminSections?.length < ADMIN_SECTIONS.length && (
+                <div className="meta">{t('accessShort', { s: person.adminSections.map((name) => t(`tab_${name}`)).join(', ') })}</div>
+              )}
               <div className="meta">{person.email} · {person.phone} · {date(person.createdAt)}</div>
               <div className="meta">{t('userAds', { n: person.listingCount })}{person.reportCount > 0 ? ` · ${t('reportsCount', { n: person.reportCount })}` : ''}</div>
             </div>
             <div className="actions">
-              {!person.isMe && !person.blocked && <AdminRoleButton person={person} onDone={reload} />}
+              {canAppoint && !person.isMe && !person.blocked && <AdminRoleButton person={person} onDone={reload} />}
               {person.role !== 'admin' && (
                 <button
                   className={`btn small ${person.blocked ? 'ghost' : 'danger'}`}
@@ -450,25 +459,47 @@ function UsersTab({ params, setFilter }) {
   );
 }
 
-/** Makes a person an admin, or takes the rights away, after a confirmation. */
+/**
+ * Makes a person an admin with the sections ticked, changes an admin's sections,
+ * or takes the rights away. Everything happens in one dialog.
+ */
 function AdminRoleButton({ person, onDone }) {
   const { t } = useI18n();
   const dialog = useRef(null);
   const { run, busy } = useAction(onDone);
   const promote = person.role !== 'admin';
-  const confirm = async () => {
-    if (await run(`/admin/users/${person.id}/admin`, { body: { admin: promote } }, promote ? 'toastPromoted' : 'toastDemoted')) dialog.current?.close();
+  const [sections, setSections] = useState(promote ? ADMIN_SECTIONS : person.adminSections ?? ADMIN_SECTIONS);
+  const toggle = (name) => setSections((current) => (current.includes(name) ? current.filter((item) => item !== name) : ADMIN_SECTIONS.filter((item) => item === name || current.includes(item))));
+  const send = async (body, message) => {
+    if (await run(`/admin/users/${person.id}/admin`, { body }, message)) dialog.current?.close();
+  };
+  const openDialog = () => {
+    setSections(promote ? ADMIN_SECTIONS : person.adminSections ?? ADMIN_SECTIONS);
+    dialog.current?.showModal();
   };
   return (
     <>
-      <button className="btn ghost small" type="button" onClick={() => dialog.current?.showModal()}>{promote ? t('promoteAdmin') : t('demoteAdmin')}</button>
+      <button className="btn ghost small" type="button" onClick={openDialog}>{promote ? t('promoteAdmin') : t('adminAccess')}</button>
       <dialog ref={dialog} className="dialog">
-        <h2>{promote ? t('promoteTitle', { n: person.name }) : t('demoteTitle', { n: person.name })}</h2>
-        <p style={{ marginTop: 10 }}>{promote ? t('promoteText') : t('demoteText')}</p>
+        <h2>{promote ? t('promoteTitle', { n: person.name }) : t('accessTitle', { n: person.name })}</h2>
+        <p style={{ marginTop: 10 }}>{promote ? t('promoteText') : t('accessHint')}</p>
+        <div className="stack access-list" style={{ marginTop: 12 }}>
+          {ADMIN_SECTIONS.map((name) => (
+            <label key={name} className="check">
+              <input type="checkbox" checked={sections.includes(name)} onChange={() => toggle(name)} />
+              {t(`section_${name}`)}
+            </label>
+          ))}
+        </div>
+        {sections.length === ADMIN_SECTIONS.length && <p className="meta" style={{ marginTop: 8 }}>{t('accessFull')}</p>}
         <div className="actions" style={{ marginTop: 16 }}>
-          <button className={`btn${promote ? '' : ' danger solid'}`} type="button" disabled={busy} onClick={confirm}>{promote ? t('promoteAdmin') : t('demoteAdmin')}</button>
+          <button className="btn" type="button" disabled={busy || sections.length === 0} onClick={() => send({ admin: true, sections }, promote ? 'toastPromoted' : 'toastAccessSaved')}>
+            {promote ? t('promoteAdmin') : t('accessSave')}
+          </button>
+          {!promote && <button className="btn danger solid" type="button" disabled={busy} onClick={() => send({ admin: false }, 'toastDemoted')}>{t('demoteAdmin')}</button>}
           <button className="btn ghost" type="button" onClick={() => dialog.current?.close()}>{t('deleteCancel')}</button>
         </div>
+        {!promote && <p className="meta" style={{ marginTop: 10 }}>{t('demoteText')}</p>}
       </dialog>
     </>
   );
@@ -500,7 +531,8 @@ function AdminBody() {
   const { user } = useAuth();
   const [search, setSearch] = useSearchParams();
   const params = Object.fromEntries(search.entries());
-  const tab = TABS.includes(params.tab) ? params.tab : 'overview';
+  const tabs = TABS.filter((name) => name === 'overview' || canAdmin(user, TAB_SECTION[name]));
+  const tab = tabs.includes(params.tab) ? params.tab : 'overview';
   const overview = useFetch(user.role === 'admin' ? '/admin/overview' : null);
 
   if (user.role !== 'admin') return <p className="state error">{t('err.forbidden')}</p>;
@@ -515,7 +547,7 @@ function AdminBody() {
   return (
     <>
       <nav className="admin-tabs" aria-label={t('admin')}>
-        {TABS.map((name) => (
+        {tabs.map((name) => (
           <button key={name} type="button" className={name === tab ? 'on' : undefined} aria-current={name === tab ? 'page' : undefined} onClick={() => open(name)}>
             {t(`tab_${name}`)}{counts[name] > 0 && <span className="badge">{counts[name]}</span>}
           </button>

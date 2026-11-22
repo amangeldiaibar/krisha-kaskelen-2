@@ -18,6 +18,7 @@ if (!user) {
   await db.close();
   process.exit(1);
 }
-await db.run('UPDATE users SET role = $1 WHERE id = $2', [remove ? 'user' : 'admin', user.id]);
+// Admins made here get every section of the panel.
+await db.run('UPDATE users SET role = $1, admin_scopes = NULL WHERE id = $2', [remove ? 'user' : 'admin', user.id]);
 console.log(`${user.name} (${user.email}) is ${remove ? 'no longer an admin' : 'now an admin'}. The admin panel is at /ru/admin.`);
 await db.close();
