@@ -399,6 +399,34 @@ describe('favorites and chat', () => {
     assert.deepEqual((await renter(`/api/conversations/${id}/messages`)).data.items.map((m) => m.text), ['Ещё актуально?']);
   });
 
+  it('marks your messages read once the other side opens the chat, and deletes all chats at once', async () => {
+    const owner = await newUser();
+    const listing = (await owner('/api/listings', { method: 'POST', body: form() })).data.item.id;
+    await approve(listing);
+    const renter = await newUser();
+    const id = (await renter(`/api/listings/${listing}/conversation`, { method: 'POST' })).data.id;
+    await renter(`/api/conversations/${id}/messages`, { method: 'POST', json: { text: 'Привет' } });
+    let thread = (await renter(`/api/conversations/${id}/messages`)).data.items;
+    assert.deepEqual(thread.map((m) => [m.text, m.read]), [['Привет', false]]);
+    assert.equal((await renter('/api/conversations')).data.items[0].lastRead, false);
+
+    await owner(`/api/conversations/${id}/read`, { method: 'POST' });
+    thread = (await renter(`/api/conversations/${id}/messages`)).data.items;
+    assert.deepEqual(thread.map((m) => [m.text, m.read]), [['Привет', true]]);
+    assert.equal((await renter('/api/conversations')).data.items[0].lastRead, true);
+    // The reader's own view has no marks on messages from the other side.
+    assert.equal((await owner(`/api/conversations/${id}/messages`)).data.items[0].read, undefined);
+
+    const second = (await owner('/api/listings', { method: 'POST', body: form({ address: 'Абылай хана, 1', rooms: '3', area: '80', price: '250000', title: 'Большая трёшка', description: 'Просторная квартира для семьи с ремонтом' }) })).data.item.id;
+    await approve(second);
+    const other = (await renter(`/api/listings/${second}/conversation`, { method: 'POST' })).data.id;
+    await owner(`/api/conversations/${other}/messages`, { method: 'POST', json: { text: 'Здравствуйте' } });
+    assert.equal((await renter('/api/conversations')).data.items.length, 2);
+    assert.equal((await renter('/api/conversations', { method: 'DELETE' })).status, 204);
+    assert.deepEqual((await renter('/api/conversations')).data, { items: [], unread: 0 });
+    assert.equal((await owner('/api/conversations')).data.items.length, 2);
+  });
+
   it('pushes a new message to both sides at once, and to nobody else', async () => {
     assert.equal((await fetch(`${base}/api/events`)).status, 401);
     const owner = await newUser();
@@ -425,13 +453,17 @@ describe('favorites and chat', () => {
 
     await renter(`/api/conversations/${id}/messages`, { method: 'POST', json: { text: 'Здравствуйте' } });
     await new Promise((resolve) => { setTimeout(resolve, 100); });
+    // Reading tells the writer once; reading again with nothing new tells nobody.
+    await owner(`/api/conversations/${id}/read`, { method: 'POST' });
+    await owner(`/api/conversations/${id}/read`, { method: 'POST' });
+    await new Promise((resolve) => { setTimeout(resolve, 100); });
     abort.abort();
     // The event says who wrote and what, for the chat button's preview.
     const { id: senderId, name } = (await renter('/api/auth/me')).data.user;
     const expected = { type: 'message', conversationId: id, senderId, senderName: name, text: 'Здравствуйте', title: 'Квартира у SDU' };
     assert.equal(ownerEvents.length, 1);
     assert.deepEqual({ ...ownerEvents[0], messageId: undefined }, { ...expected, messageId: undefined });
-    assert.deepEqual(renterEvents, ownerEvents);
+    assert.deepEqual(renterEvents, [...ownerEvents, { type: 'read', conversationId: id }]);
     assert.deepEqual(strangerEvents, []);
   });
 });

@@ -678,9 +678,16 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
     tx.run(
       `INSERT INTO conversation_reads (conversation_id, user_id, last_read_id)
        VALUES ($1, $2, (SELECT coalesce(max(id), 0) FROM messages WHERE conversation_id = $1))
-       ON CONFLICT (conversation_id, user_id) DO UPDATE SET last_read_id = greatest(conversation_reads.last_read_id, excluded.last_read_id)`,
+       ON CONFLICT (conversation_id, user_id) DO UPDATE SET last_read_id = excluded.last_read_id
+       WHERE conversation_reads.last_read_id < excluded.last_read_id`,
       [conversationId, userId],
     );
+  /** The newest message id the other side has read, for the ✓✓ marks. */
+  const otherReadId = async (conversation, userId) => {
+    const otherId = conversation.renter_id === userId ? conversation.other_id : conversation.renter_id;
+    const row = await db.get('SELECT last_read_id FROM conversation_reads WHERE conversation_id = $1 AND user_id = $2', [conversation.id, otherId]);
+    return row?.last_read_id ?? 0;
+  };
 
   /** Pushes the newest message to both sides, so the chat button can show who wrote and what. */
   async function announceMessage(conversationId) {
@@ -852,6 +859,8 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
          CASE WHEN conversations.renter_id = $1 THEN other.name ELSE renter.name END AS other_name,
          CASE WHEN conversations.renter_id = $1 THEN other.avatar ELSE renter.avatar END AS other_avatar,
          last.text AS last_message, last.created_at AS last_at, last.sender_id = $1 AS last_mine,
+         last.id <= coalesce((SELECT last_read_id FROM conversation_reads WHERE conversation_id = conversations.id AND user_id <> $1
+           AND user_id IN (conversations.renter_id, coalesce(conversations.peer_id, listings.user_id))), 0) AS last_read,
          (SELECT COUNT(*)::int FROM messages WHERE conversation_id = conversations.id AND sender_id <> $1
             AND id > greatest(coalesce(mine.last_read_id, 0), coalesce(mine.cleared_id, 0))) AS unread
        FROM conversations
@@ -859,7 +868,7 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
        JOIN users renter ON renter.id = conversations.renter_id
        JOIN users other ON other.id = coalesce(conversations.peer_id, listings.user_id)
        LEFT JOIN conversation_reads mine ON mine.conversation_id = conversations.id AND mine.user_id = $1
-       LEFT JOIN LATERAL (SELECT text, created_at, sender_id FROM messages
+       LEFT JOIN LATERAL (SELECT id, text, created_at, sender_id FROM messages
          WHERE conversation_id = conversations.id AND id > coalesce(mine.cleared_id, 0) ORDER BY id DESC LIMIT 1) last ON true
        WHERE (conversations.renter_id = $1 OR coalesce(conversations.peer_id, listings.user_id) = $1)
          -- A deleted chat comes back only when someone writes again.
@@ -876,6 +885,7 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
       lastMessage: row.last_message,
       lastAt: row.last_at,
       lastMine: Boolean(row.last_mine),
+      lastRead: Boolean(row.last_mine && row.last_read),
       unread: row.unread,
       flatmate: row.flatmate,
     }));
@@ -906,7 +916,24 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
 
   app.post('/api/conversations/:id/read', requireUser, async (req, res) => {
     const conversation = await conversationFor(req.params.id, req.user.id);
-    await markRead(db, conversation.id, req.user.id);
+    // Only real news goes out, so two open chats do not keep telling each other they read.
+    if (await markRead(db, conversation.id, req.user.id)) {
+      push([conversation.renter_id, conversation.other_id].filter((id) => id !== req.user.id), { type: 'read', conversationId: conversation.id });
+    }
+    res.status(204).end();
+  });
+
+  // "Delete all chats": clears every chat of this person at once, for them only.
+  app.delete('/api/conversations', requireUser, async (req, res) => {
+    await db.run(
+      `INSERT INTO conversation_reads (conversation_id, user_id, last_read_id, cleared_id)
+       SELECT conversations.id, $1, coalesce(last.m, 0), coalesce(last.m, 0) FROM conversations
+       JOIN listings ON listings.id = conversations.listing_id
+       LEFT JOIN LATERAL (SELECT max(id) AS m FROM messages WHERE conversation_id = conversations.id) last ON true
+       WHERE conversations.renter_id = $1 OR coalesce(conversations.peer_id, listings.user_id) = $1
+       ON CONFLICT (conversation_id, user_id) DO UPDATE SET last_read_id = excluded.last_read_id, cleared_id = excluded.cleared_id`,
+      [req.user.id],
+    );
     res.status(204).end();
   });
 
@@ -918,12 +945,13 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
       [conversation.id, req.user.id],
     );
     const other = await db.get('SELECT name, avatar FROM users WHERE id = $1', [conversation.renter_id === req.user.id ? conversation.other_id : conversation.renter_id]);
+    const readUpTo = await otherReadId(conversation, req.user.id);
     res.json({
       title: conversation.title,
       listingId: conversation.listing_id,
       otherName: other.name,
       otherAvatar: other.avatar ? `/uploads/${other.avatar}` : null,
-      items: rows.map((row) => ({ id: row.id, text: row.text, createdAt: row.created_at, isMine: row.sender_id === req.user.id })),
+      items: rows.map((row) => ({ id: row.id, text: row.text, createdAt: row.created_at, isMine: row.sender_id === req.user.id, read: row.sender_id === req.user.id ? row.id <= readUpTo : undefined })),
     });
   });
 

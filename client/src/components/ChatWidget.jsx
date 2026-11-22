@@ -7,6 +7,14 @@ import { useAuth, useI18n, useToast } from '../context.jsx';
 export const openChat = (id) => window.dispatchEvent(new CustomEvent('chat:open', { detail: { id } }));
 
 const PREVIEW_MS = 6000;
+
+const BIN = <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2zm-3 6h12l-1 12H7L6 9zm4 2v8h2v-8h-2zm4 0v8h2v-8h-2z" /></svg>;
+
+/** ✓ sent, ✓✓ read by the other side. */
+function Ticks({ read }) {
+  const { t } = useI18n();
+  return <span className={`cw-ticks${read ? ' read' : ''}`} title={t(read ? 'msgRead' : 'msgSent')} aria-label={t(read ? 'msgRead' : 'msgSent')}>{read ? '✓✓' : '✓'}</span>;
+}
 /** As long as the window's closing animation in style.css. */
 const CLOSE_MS = 220;
 
@@ -104,7 +112,7 @@ function Thread({ id, onBack, onClose, onRead, onDeleted }) {
           {data && <Link to={path(`/listing/${data.listingId}`)}>{data.title}</Link>}
         </div>
         <button type="button" className="cw-icon" onClick={removeChat} aria-label={t('deleteChat')} title={t('deleteChat')}>
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2zm-3 6h12l-1 12H7L6 9zm4 2v8h2v-8h-2zm4 0v8h2v-8h-2z" /></svg>
+          {BIN}
         </button>
         <button type="button" className="cw-icon" onClick={onClose} aria-label={t('closeChats')}>×</button>
       </div>
@@ -113,7 +121,7 @@ function Thread({ id, onBack, onClose, onRead, onDeleted }) {
         {data?.items.map((message) => (
           <div className={`cw-bubble${message.isMine ? ' mine' : ''}`} key={message.id}>
             <span className="prose">{message.text}</span>
-            <time>{when(message.createdAt, lang)}</time>
+            <time>{when(message.createdAt, lang)}{message.isMine && <Ticks read={message.read} />}</time>
             {message.isMine && (
               <button type="button" className="cw-del" onClick={() => removeMessage(message)} aria-label={t('deleteMessage')} title={t('deleteMessage')}>×</button>
             )}
@@ -129,24 +137,30 @@ function Thread({ id, onBack, onClose, onRead, onDeleted }) {
   );
 }
 
-function ChatList({ items, onPick }) {
+function ChatList({ items, onPick, onRemove }) {
   const { t, lang } = useI18n();
   if (!items) return <p className="meta cw-empty">{t('loading')}</p>;
   if (items.length === 0) return <p className="meta cw-empty">{t('noChats')}</p>;
   return (
     <div className="cw-list">
       {items.map((item) => (
-        <button type="button" key={item.id} className={`cw-row${item.unread ? ' unread' : ''}`} onClick={() => onPick(item.id)}>
-          <Face name={item.otherName} src={item.otherAvatar} />
-          <span className="cw-row-body">
-            <span className="cw-row-top"><b>{item.otherName}</b><time>{when(item.lastAt, lang)}</time></span>
-            <span className="cw-row-ad">{item.flatmate ? `👥 ${item.title}` : item.title}</span>
-            <span className="cw-row-last">
-              <span>{item.lastMessage ? `${item.lastMine ? t('youPrefix') : ''}${item.lastMessage}` : t('noMessages')}</span>
-              {item.unread > 0 && <span className="cw-count">{item.unread}</span>}
+        <div key={item.id} className={`cw-row${item.unread ? ' unread' : ''}`}>
+          <button type="button" className="cw-row-open" onClick={() => onPick(item.id)}>
+            <Face name={item.otherName} src={item.otherAvatar} />
+            <span className="cw-row-body">
+              <span className="cw-row-top"><b>{item.otherName}</b><time>{when(item.lastAt, lang)}</time></span>
+              <span className="cw-row-ad">{item.flatmate ? `👥 ${item.title}` : item.title}</span>
+              <span className="cw-row-last">
+                <span>
+                  {item.lastMine && item.lastMessage && <Ticks read={item.lastRead} />}
+                  {item.lastMessage ? `${item.lastMine ? t('youPrefix') : ''}${item.lastMessage}` : t('noMessages')}
+                </span>
+                {item.unread > 0 && <span className="cw-count">{item.unread}</span>}
+              </span>
             </span>
-          </span>
-        </button>
+          </button>
+          <button type="button" className="cw-row-del" onClick={() => onRemove(item)} aria-label={t('deleteChatWith', { name: item.otherName })} title={t('deleteChat')}>{BIN}</button>
+        </div>
       ))}
     </div>
   );
@@ -156,6 +170,7 @@ function ChatList({ items, onPick }) {
 export default function ChatWidget() {
   const { user } = useAuth();
   const { t } = useI18n();
+  const toast = useToast();
   const location = useLocation();
   const [open, setOpen] = useState(false);
   // The window stays on screen while it animates away, then leaves.
@@ -209,6 +224,28 @@ export default function ChatWidget() {
   }, [preview]);
 
   const hide = useCallback(() => setClosing(true), []);
+
+  async function removeOne(item) {
+    if (!window.confirm(t('deleteChatConfirm'))) return;
+    setChats((old) => old?.filter((chat) => chat.id !== item.id));
+    try {
+      await api(`/conversations/${item.id}`, { method: 'DELETE' });
+      toast(t('toastChatDeleted'));
+    } finally {
+      reload();
+    }
+  }
+
+  async function removeAll() {
+    if (!window.confirm(t('deleteAllChatsConfirm'))) return;
+    setChats([]);
+    try {
+      await api('/conversations', { method: 'DELETE' });
+      toast(t('toastAllChatsDeleted'));
+    } finally {
+      reload();
+    }
+  }
   useEffect(() => {
     if (!closing) return undefined;
     const timer = setTimeout(() => {
@@ -249,9 +286,10 @@ export default function ChatWidget() {
             <>
               <div className="cw-head">
                 <b className="cw-title">{t('chats')}</b>
+                {chats?.length > 0 && <button type="button" className="cw-text-btn" onClick={removeAll}>{t('deleteAllChats')}</button>}
                 <button type="button" className="cw-icon" onClick={hide} aria-label={t('closeChats')}>×</button>
               </div>
-              <ChatList items={chats} onPick={setActive} />
+              <ChatList items={chats} onPick={setActive} onRemove={removeOne} />
             </>
           )}
         </section>

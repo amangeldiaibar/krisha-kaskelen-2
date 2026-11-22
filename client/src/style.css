@@ -839,8 +839,19 @@ legend { font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
 .cw-icon { flex: none; width: 32px; height: 32px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.15); color: #fff; font-size: 1.2rem; cursor: pointer; }
 .cw-icon:hover { background: rgba(255, 255, 255, 0.28); }
 .cw-list { flex: 1; overflow-y: auto; }
-.cw-row { width: 100%; display: flex; gap: 10px; align-items: center; padding: 10px 14px; border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.cw-row { position: relative; display: flex; align-items: center; border-bottom: 1px solid var(--line); }
+.cw-row-open { flex: 1; min-width: 0; display: flex; gap: 10px; align-items: center; padding: 10px 14px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.cw-row-del { position: absolute; right: 10px; top: 50%; translate: 0 -50%; width: 32px; height: 32px; border: 0; border-radius: 50%; background: #fdecea; color: #c0392b; display: grid; place-items: center; cursor: pointer; opacity: 0; transition: opacity 0.15s; }
+.cw-row:hover .cw-row-del, .cw-row-del:focus-visible { opacity: 1; }
+.cw-row-del:hover { background: #e0352b; color: #fff; }
+@media (hover: none) { .cw-row-del { opacity: 1; position: static; translate: none; margin-right: 10px; flex: none; } }
+.cw-text-btn { flex: none; padding: 5px 10px; border: 0; border-radius: 999px; background: rgba(255, 255, 255, 0.15); color: #fff; font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
+.cw-text-btn:hover { background: #e0352b; }
+.cw-ticks { margin-left: 4px; color: var(--muted); font-size: 0.72rem; letter-spacing: -0.15em; }
+.cw-ticks.read { color: #1f8fd0; }
+.cw-row-last .cw-ticks { margin: 0 6px 0 0; }
 .cw-row:hover { background: var(--bg); }
+.cw-row:hover .cw-row-top time, .cw-row:hover .cw-count { visibility: hidden; }
 .cw-row .avatar { flex: none; }
 .cw-row-body { flex: 1; min-width: 0; display: grid; }
 .cw-row-top { display: flex; justify-content: space-between; gap: 8px; }
