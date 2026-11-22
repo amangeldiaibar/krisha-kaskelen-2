@@ -501,7 +501,7 @@ export function ListingCard({ item, index = 0, onFavoriteChange, onHover, onRemo
       </Link>
       <div className="body">
         <Link to={path(`/listing/${item.id}`)} className="price">
-          {formatPrice(item.price)}{item.deal === 'rent' ? ` / ${t('perMonth')}` : ''}
+          {item.price === null || item.price === undefined ? '' : t('cardPriceFrom', { p: formatPrice(item.price) })}{item.deal === 'rent' ? ` / ${t('perMonth')}` : ''}
         </Link>
         <div className="meta">{heading} · {place}</div>
         <Distance km={item.distanceKm} />
