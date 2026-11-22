@@ -134,6 +134,7 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
       title: row.title,
       deal: row.deal,
       price: row.price,
+      priceFrom: Boolean(row.price_from),
       rooms: row.rooms,
       area: row.area,
       floor: row.floor,
@@ -142,11 +143,11 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
       district: row.district,
       address: row.address,
       description: row.description,
-      // Contacts and the link to the original ad are for people who signed in.
+      // The owner's phone is for people who signed in; the link to the original ad is open to all.
       phone: userId ? row.phone : null,
       point,
       distanceKm: point ? Math.round(distanceKm(SDU, point) * 10) / 10 : null,
-      source: { type: row.source_type, name: row.source_name, url: userId ? row.source_url : null },
+      source: { type: row.source_type, name: row.source_name, url: row.source_url },
       photos,
       photosAreExamples: row.source_type === 'test',
       isOwner: Boolean(userId && row.user_id === userId),
@@ -445,7 +446,7 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
       sdu: { lat: SDU.lat, lon: SDU.lon },
       item: {
         ...(await present(row, req.user?.id, row.user_id === req.user?.id || canAdmin(req.user, 'listings'))),
-        alsoPublished: copies.map((copy) => ({ id: copy.id, source: { type: copy.source_type, name: copy.source_name, url: req.user ? copy.source_url : null } })),
+        alsoPublished: copies.map((copy) => ({ id: copy.id, source: { type: copy.source_type, name: copy.source_name, url: copy.source_url } })),
       },
     });
   });

@@ -280,6 +280,9 @@ export function Status({ loading, error, onRetry }) {
   return null;
 }
 
+/** A listing's price; a developer's layout shows its lowest price as "from …". */
+export const listingPrice = (item, t) => (item.priceFrom && item.price !== null ? t('cardPriceFrom', { p: formatPrice(item.price) }) : formatPrice(item.price));
+
 export const formatPrice = (value) => (value === null || value === undefined ? '' : `${String(value).replace(/\B(?=(\d{3})+$)/g, ' ')} ₸`);
 
 /** Telegram channels are shown simply as "Telegram"; other sites by their name. */
@@ -456,9 +459,7 @@ export function LoginForContacts({ className = 'btn', children }) {
 
 export function DealCardButton({ item }) {
   const { t, path } = useI18n();
-  const { user } = useAuth();
   if (item.dealStatus === 'closed') return <span className="status rejected">{t(`closed_${item.deal}`)}</span>;
-  if (item.source.type === 'import' && !user) return <LoginForContacts className="btn small">{t('openShort')}</LoginForContacts>;
   if (item.source.type === 'import') {
     return <a className="btn small" href={item.source.url} target="_blank" rel="noopener noreferrer nofollow" title={t('openOnSource', { name: sourceName(item.source) })}>{t('openShort')}</a>;
   }
@@ -511,7 +512,7 @@ export function ListingCard({ item, index = 0, onFavoriteChange, onHover, onRemo
       </Link>
       <div className="body">
         <Link to={path(`/listing/${item.id}`)} className="price">
-          {item.price === null || item.price === undefined ? '' : t('cardPriceFrom', { p: formatPrice(item.price) })}{item.deal === 'rent' ? ` / ${t('perMonth')}` : ''}
+          {listingPrice(item, t)}{item.deal === 'rent' ? ` / ${t('perMonth')}` : ''}
         </Link>
         <div className="meta">{heading} · {place}</div>
         <Distance km={item.distanceKm} />

@@ -113,6 +113,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_scopes text[];
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS duplicate_of integer REFERENCES listings(id) ON DELETE SET NULL;
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS moderated_by integer REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS geocode_tried_at timestamptz;
+-- A new-build layout from a developer: the price is the lowest one, shown as "from …".
+ALTER TABLE listings ADD COLUMN IF NOT EXISTS price_from boolean NOT NULL DEFAULT false;
 -- People who want to rent a flat together with someone mark it here, and others write to them.
 CREATE TABLE IF NOT EXISTS roommates (
   listing_id integer NOT NULL REFERENCES listings(id) ON DELETE CASCADE,

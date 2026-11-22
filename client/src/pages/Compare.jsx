@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { MAX_COMPARE, useCompare, useFetch, useI18n, useToast } from '../context.jsx';
-import { DealCardButton, HouseArt, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
+import { DealCardButton, HouseArt, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel, listingPrice } from '../components/Shared.jsx';
 
 const AMENITIES = ['furniture', 'pets', 'internet', 'washer', 'parking', 'balcony', 'conditioner'];
 
@@ -29,7 +29,7 @@ function CompareTable({ items, onRemove }) {
   // Rent and sale prices cannot be compared with each other.
   const sameDeal = items.every((item) => item.deal === items[0].deal);
   const rows = [
-    { label: t('price'), values: items.map((item) => item.price), better: sameDeal ? lower : null, show: (item) => `${formatPrice(item.price)}${item.deal === 'rent' ? ` / ${t('perMonth')}` : ''}` },
+    { label: t('price'), values: items.map((item) => item.price), better: sameDeal ? lower : null, show: (item) => `${listingPrice(item, t)}${item.deal === 'rent' ? ` / ${t('perMonth')}` : ''}` },
     { label: t('pricePerM2'), values: items.map((item) => item.pricePerM2), better: sameDeal ? lower : null, show: (item) => formatPrice(item.pricePerM2) },
     { label: t('rooms'), values: items.map((item) => item.rooms), show: (item) => (item.rooms === 0 ? t('studio') : item.rooms) },
     { label: t('area'), values: items.map((item) => item.area), better: higher, show: (item) => (item.area ? `${item.area} м²` : null) },

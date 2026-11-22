@@ -246,12 +246,21 @@ describe('admin panel', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Удалить' })).toBeNull());
   });
 
-  it('sends a guest to sign in before opening the original ad', async () => {
-    mockApi({ '/auth/me': { user: null }, '/listings': { sdu: { lat: 43.2, lon: 76.6 }, items: [item({ id: 5, source: { type: 'import', name: 't.me/x', url: null } })] } });
+  it('lets a guest open the original ad without signing in', async () => {
+    mockApi({ '/auth/me': { user: null }, '/listings': { sdu: { lat: 43.2, lon: 76.6 }, items: [item({ id: 5 })] } });
     show('/ru', <Home />, '/:lang');
     const open = await screen.findByRole('link', { name: 'Открыть' });
-    expect(open.getAttribute('href')).toBe('/ru/login');
-    expect(open.getAttribute('title')).toBe('Войдите, чтобы увидеть контакты и ссылку на объявление.');
+    expect(open.getAttribute('href')).toBe('https://t.me/x/1');
+  });
+
+  it('writes "from" only before the price of a developer layout', async () => {
+    mockApi({ '/auth/me': { user: null }, '/listings': { sdu: { lat: 43.2, lon: 76.6 }, items: [
+      item({ id: 5, deal: 'buy', price: 19999990 }),
+      item({ id: 6, deal: 'buy', price: 30331500, priceFrom: true }),
+    ] } });
+    show('/ru', <Home />, '/:lang');
+    expect(await screen.findByText('от 30 331 500 ₸')).toBeTruthy();
+    expect(screen.getByText('19 999 990 ₸')).toBeTruthy();
   });
 
   it('names Telegram channels simply as Telegram and keeps the open button short', async () => {

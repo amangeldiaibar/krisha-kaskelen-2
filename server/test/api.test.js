@@ -205,17 +205,13 @@ describe('listings', () => {
     assert.equal((await reader(`/api/listings/${id}`)).data.item.phone, '+7 700 111 22 33');
   });
 
-  it('shows the link to the original ad only after sign-in', async () => {
+  it('shows the link to the original ad to guests too', async () => {
     await db.run(
       `INSERT INTO listings (source_type, source_name, source_url, title, deal, description, status, lat, lon)
        VALUES ('import', 'krisha.kz', 'https://krisha.kz/a/show/555', 'k', 'buy', 'd', 'approved', 43.2, 76.65)`,
     );
     const { id } = await db.get(`SELECT id FROM listings WHERE source_url = 'https://krisha.kz/a/show/555'`);
-    const asGuest = (await client()(`/api/listings/${id}`)).data.item;
-    assert.equal(asGuest.source.url, null);
-    assert.equal(asGuest.source.name, 'krisha.kz');
-    const reader = await newUser();
-    assert.equal((await reader(`/api/listings/${id}`)).data.item.source.url, 'https://krisha.kz/a/show/555');
+    assert.equal((await client()(`/api/listings/${id}`)).data.item.source.url, 'https://krisha.kz/a/show/555');
   });
 
   it('rejects unknown addresses but saves when 2GIS is down', async () => {
@@ -832,6 +828,14 @@ describe('krisha.kz CSV import', () => {
     assert.equal(forSale.deal, 'buy');
     assert.equal(forSale.price, 23500000);
     assert.equal(forSale.description, 'кирпичный дом, 2015 г.п.');
+    assert.equal(forSale.priceFrom, false);
+
+    const layoutCsv = '﻿id,url,rent_period,price_kzt,rooms,area_total,floor,floors_total,address,description,deal_type\r\n'
+      + '675799919,https://krisha.kz/a/show/675799919,,30331500,2,83.1,2,,Абылай хана 2/5,"2-комнатная квартира · 83.1 м² от 30 331 500 ₸ Абылай хана 2/5 жил. комплекс Arnau 2.0 Новостройка ЖК «Arnau 2.0» от застройщика «Time Group» Каскелен 22 нояб.",sale\r\n';
+    const [layout] = parseCsv(layoutCsv).map(rowToListing);
+    assert.equal(layout.priceFrom, true);
+    assert.equal(layout.title, '2-комнатная квартира · 83.1 м²');
+    assert.equal(layout.deal, 'buy');
   });
 
   it('updates ads already on the site, removes ads gone from the file and test ads, keeps Telegram ads and ads people posted, and adds photos from the folder', async () => {

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth, useFetch, useI18n, usePolling, useToast } from '../context.jsx';
-import { AdminDeleteButton, CompareButton, LoginForContacts, canAdmin, sourceName, DeleteListingButton, Distance, FavoriteButton, HouseArt, ListingsMap, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
+import { AdminDeleteButton, CompareButton, LoginForContacts, canAdmin, listingPrice, sourceName, DeleteListingButton, Distance, FavoriteButton, HouseArt, ListingsMap, SkeletonCards, SourceBadge, Status, formatPrice, listingLabel } from '../components/Shared.jsx';
 
 const PENDING_POLL_MS = 3000;
 
@@ -123,7 +123,7 @@ function DealDialog({ item, onClose, onSent }) {
     <dialog ref={dialog} className="dialog" onClose={onClose} onClick={(event) => event.target === dialog.current && onClose()}>
       <form className="stack" onSubmit={submit}>
         <h2>{t(isRent ? 'dealTitleRent' : 'dealTitleBuy')}</h2>
-        <p className="meta">{item.title} · {formatPrice(item.price)}{isRent ? ` / ${t('perMonth')}` : ''}</p>
+        <p className="meta">{item.title} · {listingPrice(item, t)}{isRent ? ` / ${t('perMonth')}` : ''}</p>
         <label>{t(isRent ? 'dealDateRent' : 'dealDateBuy')}
           <input type="date" value={date} min={new Date().toISOString().slice(0, 10)} onChange={(event) => setDate(event.target.value)} />
         </label>
@@ -187,11 +187,11 @@ function DealPanel({ item, onChanged }) {
       </div>
     );
   }
-  if (!user) {
-    return <LoginForContacts className="btn full" />;
-  }
   if (item.source.type === 'import') {
     return <a className="btn full" href={item.source.url} target="_blank" rel="noopener noreferrer nofollow">{t('openOnSource', { name: sourceName(item.source) })}</a>;
+  }
+  if (!user) {
+    return <LoginForContacts className="btn full" />;
   }
   if (item.isOwner) {
     return <Link className="btn ghost full" to={path('/requests')}>{t('requests')}</Link>;
@@ -467,21 +467,21 @@ function ContactPanel({ item }) {
     }
   }
 
-  if (!user) {
-    return (
-      <section className="panel">
-        <h2>{t(item.source.type === 'import' ? 'contacts' : 'owner')}</h2>
-        <p className="meta">{t('loginForContacts')}</p>
-        <div className="actions"><LoginForContacts /></div>
-      </section>
-    );
-  }
   if (item.source.type === 'import') {
     return (
       <section className="panel">
         <h2>{t('contacts')}</h2>
         <p className="meta">{t('sourceContacts')}</p>
         <a className="btn" style={{ marginTop: 8 }} href={item.source.url} target="_blank" rel="noopener noreferrer nofollow">{t('openSource')}</a>
+      </section>
+    );
+  }
+  if (!user) {
+    return (
+      <section className="panel">
+        <h2>{t('owner')}</h2>
+        <p className="meta">{t('loginForContacts')}</p>
+        <div className="actions"><LoginForContacts /></div>
       </section>
     );
   }
@@ -555,7 +555,7 @@ export default function Listing() {
             )}
             <dl style={{ marginTop: 12 }}>
               <dt>{t('price')}</dt>
-              <dd>{formatPrice(item.price)}{item.deal === 'rent' ? ` / ${t('perMonth')}` : ''}</dd>
+              <dd>{listingPrice(item, t)}{item.deal === 'rent' ? ` / ${t('perMonth')}` : ''}</dd>
               {item.year && <><dt>{t('yearBuilt')}</dt><dd>{item.year}</dd></>}
               {item.rooms !== null && <><dt>{t('rooms')}</dt><dd>{item.rooms === 0 ? t('studio') : item.rooms}</dd></>}
               {item.floor && <><dt>{t('floor')}</dt><dd>{item.floors ? t('floorOf', { a: item.floor, b: item.floors }) : item.floor}</dd></>}
@@ -576,7 +576,7 @@ export default function Listing() {
         </div>
         <aside className="side">
           <section className="panel">
-            <div className="price">{formatPrice(item.price)}</div>
+            <div className="price">{listingPrice(item, t)}</div>
             {item.deal === 'rent' && <div className="meta">{t('perMonthLong')}</div>}
             <DealPanel item={item} onChanged={reload} />
             <div className="actions">
