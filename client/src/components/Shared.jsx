@@ -38,7 +38,7 @@ function LayoutBody() {
     <>
       <header>
         <div className="wrap">
-          <Link className="logo" to={path()}>Krisha<span>Kaskelen</span></Link>
+          <Link className="logo" to={path()}><img src="/favicon.svg" alt="" width="30" height="30" />Krisha<span>Kaskelen</span></Link>
           <nav>
             <Link className={onHome && dealParam === 'rent' ? 'active' : undefined} to={path('?deal=rent')}>{t('rent')}</Link>
             <Link className={onHome && dealParam === 'buy' ? 'active' : undefined} to={path('?deal=buy')}>{t('buy')}</Link>

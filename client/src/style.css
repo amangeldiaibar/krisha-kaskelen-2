@@ -47,6 +47,12 @@ header .wrap {
 .logo {
   font-weight: 800;
   font-size: 1.25rem;
+  display: inline-flex;
+  align-items: center;
+}
+.logo img {
+  margin-right: 8px;
+  border-radius: 7px;
 }
 .logo span {
   color: var(--accent);
