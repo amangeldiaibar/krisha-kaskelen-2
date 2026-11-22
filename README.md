@@ -5,6 +5,45 @@ People can find apartments near SDU University, see them on a map, read reviews,
 
 The frontend uses React and React Router. The backend uses Express and PostgreSQL. The interface is available in English, Russian and Kazakh.
 
+## What's new this week (16–22 November 2026)
+
+**Search and ads**
+- Search by phrase: type "однушка до 120к рядом с SDU с мебелью" and it becomes filters you can remove one by one.
+- Comparison of up to four ads side by side, with the best values marked.
+- Results come 20 to a page with page numbers, and the map shows the ads on the current page.
+- Nearer flats are listed first, and every card says how far the flat is from SDU. Ads up to 12 km away are shown, instead of the earlier 3 km limit.
+- Every card says when the ad was last updated ("Обновлено 2 дня назад"). Imported ads not updated for 30 days leave search, so people do not call about flats already taken.
+- Developer layouts show their price as "от …".
+- Ads without photos or without a place on the map are refused before moderation.
+
+**Trust and safety**
+- Owners confirm their phone with an SMS code, and their ads show "✓ Телефон подтверждён".
+- Guests sign in before they see an owner's phone. Links to the original krisha.kz or Telegram ad stay open to everyone.
+- Reports: a signed-in user can report an ad as fraud, wrong details, taken, a copy or offensive.
+- Duplicates: the same flat from krisha.kz and Telegram is found, and an admin keeps one copy.
+
+**Accounts and help**
+- Forgot password: a one-time link by email.
+- Support page: people write to the admins and see their answers.
+- Favorites and Support are in the header.
+- Flatmates: on a rental, people mark that they look for a flatmate and write to each other.
+- Saving the profile says which field clashes with another account.
+
+**Admin panel**
+- Ads with filters by status, source and missing details, AI decisions with an override, duplicates, reports, reviews, support, users with blocking, and a log of admin actions.
+- Admins can delete an ad straight from search or the ad page.
+- Admins make other users admins from the Users tab and choose which sections each one gets.
+
+**Where the ads come from**
+- krisha.kz ads now come from KrishaParser, with every photo of an ad, rentals and sales. Re-imports keep the moderation decisions already made.
+- krisha.kz search pages saved from a browser can be loaded when the site blocks the parser.
+- Telegram ads come from more channels, including Almaty-wide ones filtered to Kaskelen and the villages towards Almaty.
+- Addresses are looked up in OpenStreetMap when 2GIS refuses the key.
+- The Google import through SerpAPI was removed.
+
+**Look**
+- The project has an avatar, a house under the Alatau, used as the browser tab icon and in the header.
+
 ## Getting started
 
 You need Node.js 22.13 or newer.
