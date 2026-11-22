@@ -54,6 +54,22 @@ const number = (value) => {
 /** Where the seller line and krisha.kz buttons start in a search card's text. */
 const CARD_TAIL = /\s(?:Хозяин недвижимости|Специалист|Агент|Риелтор|Застройщик|Каскелен\s+\d{1,2}\s|В Избранное)/;
 
+const MONTHS = ['янв', 'фев', 'мар', 'апр', 'ма', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+
+/**
+ * The date krisha.kz shows on a search card ("Каскелен 22 нояб."), which moves when the
+ * owner updates or raises the ad. The card has no year, so a date ahead of now is last year's.
+ */
+export function cardDate(card, now = new Date()) {
+  const match = String(card ?? '').match(/Каскелен\s+(\d{1,2})\s+([а-я]+)/i);
+  if (!match) return null;
+  const month = MONTHS.findIndex((name) => match[2].toLowerCase().startsWith(name));
+  if (month < 0) return null;
+  const date = new Date(now.getFullYear(), month, Number(match[1]));
+  if (date > now) date.setFullYear(date.getFullYear() - 1);
+  return date;
+}
+
 /** Rewrites a row exported by KrishaParser (house-pricer) into the columns of the old CSV. */
 export function fromHousePricer(row) {
   const card = String(row.description ?? '').replace(/\s+/g, ' ').trim();
@@ -74,6 +90,7 @@ export function fromHousePricer(row) {
     price_raw: row.rent_period === 'month' ? 'за месяц' : row.rent_period === 'day' ? 'за сутки' : layout ? 'от' : '',
     address,
     description: (tail >= 0 ? rest.slice(0, tail) : rest).trim() || title,
+    refreshed: cardDate(card),
   };
 }
 
@@ -106,6 +123,7 @@ export function rowToListing(input) {
     street,
     description: cleanPost(row.description || title).slice(0, 5000) || title,
     sourceUrl: url.split('?')[0],
+    refreshedAt: row.refreshed ?? null,
   };
 }
 
@@ -162,16 +180,17 @@ export async function importKrisha({ db, rows, photosDir, uploadsDir, geocode })
     const removed = await tx.run(`DELETE FROM listings WHERE ${gone}`, [urls]);
     for (const item of listings.filter((entry) => existing.has(entry.sourceUrl))) {
       await tx.run(
-        `UPDATE listings SET title = $1, price = $2, rooms = $3, area = $4, floor = $5, floors = $6, address = $7, description = $8, price_from = $9 WHERE id = $10`,
-        [item.title, item.price, item.rooms, item.area, item.floor, item.floors, item.address, item.description, item.priceFrom, existing.get(item.sourceUrl)],
+        `UPDATE listings SET title = $1, price = $2, rooms = $3, area = $4, floor = $5, floors = $6, address = $7, description = $8, price_from = $9,
+           refreshed_at = GREATEST(refreshed_at, $10) WHERE id = $11`,
+        [item.title, item.price, item.rooms, item.area, item.floor, item.floors, item.address, item.description, item.priceFrom, item.refreshedAt, existing.get(item.sourceUrl)],
       );
     }
     const ids = [];
     for (const item of fresh) {
       const { id } = await tx.get(
-        `INSERT INTO listings (source_type, source_name, source_url, title, deal, price, rooms, area, floor, floors, address, description, lat, lon, price_from, status)
-         VALUES ('import', 'krisha.kz', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending') RETURNING id`,
-        [item.sourceUrl, item.title, item.deal, item.price, item.rooms, item.area, item.floor, item.floors, item.address, item.description, item.lat, item.lon, item.priceFrom],
+        `INSERT INTO listings (source_type, source_name, source_url, title, deal, price, rooms, area, floor, floors, address, description, lat, lon, price_from, refreshed_at, status)
+         VALUES ('import', 'krisha.kz', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending') RETURNING id`,
+        [item.sourceUrl, item.title, item.deal, item.price, item.rooms, item.area, item.floor, item.floors, item.address, item.description, item.lat, item.lon, item.priceFrom, item.refreshedAt],
       );
       ids.push(id);
     }

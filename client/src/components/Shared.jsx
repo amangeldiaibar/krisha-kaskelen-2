@@ -299,6 +299,15 @@ export function Distance({ km }) {
   return <span className="distance">{km === null ? t('distanceUnknown') : t('distanceSdu', { n: km })}</span>;
 }
 
+/** "Updated 2 days ago", so people see how fresh an ad is before they call. */
+export function Freshness({ date }) {
+  const { t, lang } = useI18n();
+  if (!date) return null;
+  const days = Math.max(0, Math.floor((Date.now() - new Date(date).getTime()) / 86_400_000));
+  const when = new Intl.RelativeTimeFormat(lang, { numeric: 'auto' }).format(-days, 'day');
+  return <span className={`freshness${days > 14 ? ' old' : ''}`}>{t('updatedAgo', { when })}</span>;
+}
+
 export function listingLabel(t, item) {
   if (item.rooms === 0) return t('studio');
   return item.rooms ? t('roomApartment', { n: item.rooms }) : '';
@@ -516,6 +525,7 @@ export function ListingCard({ item, index = 0, onFavoriteChange, onHover, onRemo
         </Link>
         <div className="meta">{heading} · {place}</div>
         <Distance km={item.distanceKm} />
+        <Freshness date={item.updatedAt} />
         <div className="tags">
           {item.rooms > 0 && <span className="tag">{t('roomCount', { n: item.rooms })}</span>}
           {item.rooms === 0 && <span className="tag">{t('studio')}</span>}

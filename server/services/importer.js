@@ -36,9 +36,9 @@ export async function saveImports({ db, prepared, uploadsDir }) {
     const result = [];
     for (const item of prepared) {
       const { id } = await tx.get(
-        `INSERT INTO listings (source_type, source_name, source_url, title, deal, price, rooms, area, address, description, lat, lon, status)
-         VALUES ('import', $1, $2, $3, 'rent', $4, $5, $6, $7, $8, $9, $10, 'pending') RETURNING id`,
-        [item.sourceName, item.sourceUrl, item.title, item.price, item.rooms, item.area, item.address, item.description, item.lat, item.lon],
+        `INSERT INTO listings (source_type, source_name, source_url, title, deal, price, rooms, area, address, description, lat, lon, refreshed_at, status)
+         VALUES ('import', $1, $2, $3, 'rent', $4, $5, $6, $7, $8, $9, $10, $11, 'pending') RETURNING id`,
+        [item.sourceName, item.sourceUrl, item.title, item.price, item.rooms, item.area, item.address, item.description, item.lat, item.lon, item.post?.date ?? null],
       );
       result.push({ ...item, listingId: id });
     }

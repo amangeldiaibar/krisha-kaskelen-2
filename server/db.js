@@ -115,6 +115,11 @@ ALTER TABLE listings ADD COLUMN IF NOT EXISTS moderated_by integer REFERENCES us
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS geocode_tried_at timestamptz;
 -- A new-build layout from a developer: the price is the lowest one, shown as "from …".
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS price_from boolean NOT NULL DEFAULT false;
+-- When the source last showed the ad as current: the date on the krisha.kz card or of the Telegram post.
+ALTER TABLE listings ADD COLUMN IF NOT EXISTS refreshed_at timestamptz;
+-- Flats from 3 to 12 km away were once refused; they are shown now, so they get moderated again.
+UPDATE listings SET status = 'pending', moderation_reason = NULL
+  WHERE status = 'rejected' AND moderation_reason ~ '^(Квартира дальше 3 км|The flat is more than 3 km|Пәтер SDU-дан 3 км)';
 -- People who want to rent a flat together with someone mark it here, and others write to them.
 CREATE TABLE IF NOT EXISTS roommates (
   listing_id integer NOT NULL REFERENCES listings(id) ON DELETE CASCADE,

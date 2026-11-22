@@ -408,6 +408,8 @@ nav button { background: none; border: 0; color: inherit; font: inherit; cursor:
 .source.import { background: #fff7d6; color: #6b5200; }
 .source a { text-decoration: underline; }
 .distance { color: var(--brand); font-weight: 700; font-size: 0.9rem; }
+.freshness { display: block; color: var(--muted); font-size: 0.85rem; }
+.freshness.old { color: #b35c00; }
 .fav { position: absolute; top: 8px; left: 8px; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line); background: #fff; color: var(--brand); cursor: pointer; font-size: 1.1rem; line-height: 1; }
 .fav[aria-pressed='true'] { color: #c0392b; }
 .fav-inline { position: static; width: auto; height: auto; border-radius: var(--r); padding: 8px 12px; font: inherit; font-weight: 700; }

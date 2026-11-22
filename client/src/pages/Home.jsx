@@ -10,7 +10,7 @@ const FILTERS = ['deal', 'rooms', 'priceFrom', 'priceTo', 'yearFrom', 'yearTo', 
 const FEATURES = ['furniture', 'pets', 'internet', 'washer', 'parking', 'balcony', 'conditioner'];
 const DISTANCES = ['1', '1.5', '3'];
 // Newest first by default, so ads that were just approved are seen.
-const DEFAULT_SORT = 'new';
+const DEFAULT_SORT = 'distance';
 const SORTS = ['new', 'distance', 'price_asc', 'price_desc'];
 
 const PRICE_DIGITS = 11;

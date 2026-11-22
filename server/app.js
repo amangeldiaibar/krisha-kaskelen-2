@@ -4,7 +4,7 @@ import path from 'node:path';
 import express from 'express';
 import multer from 'multer';
 import { rateLimit } from 'express-rate-limit';
-import { SDU } from './config.js';
+import { SDU, STALE_AFTER_DAYS } from './config.js';
 import { isUniqueViolation } from './db.js';
 import { distanceKm } from './geo.js';
 import { COOKIE, USER_COLUMNS, canAdmin, createSession, destroySession, hashPassword, loadUser, readCookie, requireUser, tokenHash, verifyPassword } from './auth.js';
@@ -147,6 +147,8 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
       phone: userId ? row.phone : null,
       point,
       distanceKm: point ? Math.round(distanceKm(SDU, point) * 10) / 10 : null,
+      // When the ad was last updated: at its source for imports, on this site for the rest.
+      updatedAt: row.refreshed_at ?? row.updated_at,
       source: { type: row.source_type, name: row.source_name, url: row.source_url },
       photos,
       photosAreExamples: row.source_type === 'test',
@@ -352,6 +354,8 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
       `deal_status = 'available'`,
       'duplicate_of IS NULL',
       'NOT EXISTS (SELECT 1 FROM users WHERE users.id = listings.user_id AND users.blocked_at IS NOT NULL)',
+      // Imported ads nobody has updated for long are likely taken, so people do not call about them.
+      `(source_type <> 'import' OR COALESCE(refreshed_at, updated_at) > now() - make_interval(days => ${STALE_AFTER_DAYS}))`,
     ];
     const params = [];
     // Adds a value and returns its numbered placeholder.
@@ -379,8 +383,8 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
     const hasMaxKm = Number.isFinite(maxKm) && maxKm > 0 && maxKm <= 50;
     if (hasMaxKm) where.push('lat IS NOT NULL');
     const rows = await db.all(`SELECT * FROM listings WHERE ${where.join(' AND ')} ORDER BY id DESC`, params);
-    // Newest first by default, so ads that were just approved are seen.
-    const sort = SORTS.includes(req.query.sort) ? req.query.sort : 'new';
+    // Nearest first by default; far flats stay in the list, lower down.
+    const sort = SORTS.includes(req.query.sort) ? req.query.sort : 'distance';
     const items = (await presentAll(rows, req.user?.id)).filter((item) => !hasMaxKm || item.distanceKm <= maxKm).sort(SORTERS[sort]);
     // Distance is only known after present(), so the page is cut here and not in SQL.
     const pages = Math.max(1, Math.ceil(items.length / SEARCH_PAGE_SIZE));

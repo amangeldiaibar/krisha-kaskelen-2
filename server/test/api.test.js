@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { createApp } from '../app.js';
-import { importKrisha, parseCsv, rowToListing } from '../services/krishaCsv.js';
+import { cardDate, importKrisha, parseCsv, rowToListing } from '../services/krishaCsv.js';
 import { connectDb } from '../db.js';
 import { startLocalPostgres } from '../local-postgres.js';
 import { copySqliteToPostgres } from '../services/sqliteCopy.js';
@@ -582,17 +582,39 @@ describe('moderation worker', () => {
     assert.equal(asked.includes(noPhoto) || asked.includes(notFound) || asked.includes(waiting), false);
   });
 
-  it('refuses flats more than 3 km from SDU', async () => {
+  it('keeps flats a few km away and refuses only those outside the served area', async () => {
     const far = await pendingListing();
+    const middle = await pendingListing();
     const near = await pendingListing();
-    await db.run('UPDATE listings SET lat = 43.2379, lon = 76.7628 WHERE id = $1', [far]); // Иргели, about 9 km
+    await db.run('UPDATE listings SET lat = 43.25, lon = 76.85 WHERE id = $1', [far]); // Алматы, about 15 km
+    await db.run('UPDATE listings SET lat = 43.2379, lon = 76.7628 WHERE id = $1', [middle]); // Иргели, about 9 km
     await db.run('UPDATE listings SET lat = 43.2016, lon = 76.6400 WHERE id = $1', [near]); // about 2.5 km
     const moderator = { moderateListing: async () => ({ decision: 'approve', reason: 'ok' }), moderateReview: async () => ({}) };
     for (let i = 0; i < 5; i += 1) await createWorker({ db, dgis, log: silent, moderator }).tick();
     const farRow = await db.get('SELECT status, moderation_reason FROM listings WHERE id = $1', [far]);
     assert.equal(farRow.status, 'rejected');
-    assert.match(farRow.moderation_reason, /3 км/);
+    assert.match(farRow.moderation_reason, /12 км/);
+    assert.equal((await db.get('SELECT status FROM listings WHERE id = $1', [middle])).status, 'approved');
     assert.equal((await db.get('SELECT status FROM listings WHERE id = $1', [near])).status, 'approved');
+  });
+
+  it('lists nearer flats first, says when each ad was updated and hides imports nobody updated for a month', async () => {
+    const ids = [];
+    for (const [title, lat, lon, refreshed] of [
+      ['far', 43.2379, 76.7628, '0 days'],
+      ['near', 43.2016, 76.6400, '2 days'],
+      ['stale', 43.2016, 76.6400, '45 days'],
+    ]) {
+      const { id } = await db.get(
+        `INSERT INTO listings (source_type, source_name, source_url, title, deal, price, description, lat, lon, status, refreshed_at)
+         VALUES ('import', 'krisha.kz', $1, $2, 'rent', 100000, 'text', $3, $4, 'approved', now() - $5::interval) RETURNING id`,
+        [`https://krisha.kz/a/show/9${ids.length}`, title, lat, lon, refreshed],
+      );
+      ids.push(id);
+    }
+    const { items } = (await client()('/api/listings')).data;
+    assert.deepEqual(items.map((item) => item.title), ['near', 'far']);
+    assert.ok(Date.now() - new Date(items[0].updatedAt).getTime() > 47 * 3600_000);
   });
 
   it('pauses 2GIS and the AI after a failure and does not look up an unknown address on every tick', async () => {
@@ -773,7 +795,7 @@ describe('telegram import', () => {
   });
 
   it('does not save Telegram ads far from SDU', async () => {
-    const { prepared } = await postsToListings({ posts: [post()], extract: async () => fields, geocode: async () => ({ lat: 43.2379, lon: 76.7628 }), slots: 2, log: silent });
+    const { prepared } = await postsToListings({ posts: [post()], extract: async () => fields, geocode: async () => ({ lat: 43.25, lon: 76.85 }), slots: 2, log: silent });
     assert.equal(prepared.length, 0);
   });
 
@@ -821,6 +843,12 @@ describe('krisha.kz CSV import', () => {
     assert.equal(listing.floors, 7);
     assert.equal(listing.address, 'Алтын-ауыл');
     assert.equal(listing.description, 'монолитный дом, евроремонт');
+    assert.equal(listing.refreshedAt.getDate(), 21);
+    assert.equal(listing.refreshedAt.getMonth(), 10);
+    // Cards carry no year: a date ahead of today belongs to last year.
+    assert.equal(cardDate('Каскелен 30 дек.', new Date(2026, 0, 5)).getFullYear(), 2025);
+    assert.equal(cardDate('Каскелен 3 мая', new Date(2026, 5, 1)).getMonth(), 4);
+    assert.equal(cardDate('без даты'), null);
 
     const sale = '\uFEFFid,url,rent_period,price_kzt,rooms,area_total,floor,floors_total,address,description,deal_type\r\n'
       + '1017000001,https://krisha.kz/a/show/1017000001,,23500000,2,54.0,3,5,Абылай хана 15,"2-комнатная квартира · 54 м² · 3/5 этаж 23 500 000 ₸ Абылай хана 15 кирпичный дом, 2015 г.п. Хозяин недвижимости",sale\r\n';
@@ -1175,11 +1203,11 @@ describe('search pages', () => {
     assert.equal((await client()('/api/listings?page=abc')).data.page, 1);
   });
 
-  it('shows the newest ads first unless another order is asked for', async () => {
+  it('shows the nearest ads first unless another order is asked for', async () => {
     const near = await addListing({ lat: 43.2072, lon: 76.6697 });
     const far = await addListing({ lat: 43.2379, lon: 76.7628 });
-    assert.deepEqual((await client()('/api/listings')).data.items.slice(0, 2).map((item) => item.id), [far, near]);
-    assert.deepEqual((await client()('/api/listings?sort=distance')).data.items.slice(0, 2).map((item) => item.id), [near, far]);
+    assert.deepEqual((await client()('/api/listings')).data.items.slice(0, 2).map((item) => item.id), [near, far]);
+    assert.deepEqual((await client()('/api/listings?sort=new')).data.items.slice(0, 2).map((item) => item.id), [far, near]);
   });
 });
 

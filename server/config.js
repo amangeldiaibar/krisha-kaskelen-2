@@ -48,5 +48,7 @@ export const config = {
 };
 
 export const SDU = { name: 'SDU University', lat: 43.207176, lon: 76.66967 };
-/** The site shows only flats this close to SDU. */
-export const MAX_AD_DISTANCE_KM = 3;
+/** The served area: Kaskelen and the villages around it. Search lists nearer flats first. */
+export const MAX_AD_DISTANCE_KM = 12;
+/** Imported ads the source has not shown as updated for this long leave search, as the flat is likely taken. */
+export const STALE_AFTER_DAYS = 30;
