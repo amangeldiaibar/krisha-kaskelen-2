@@ -693,8 +693,11 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
       [conversationId],
     );
     if (!row) return;
-    const event = { type: 'message', conversationId, messageId: row.id, senderId: row.sender_id, senderName: row.sender_name, text: row.text, title: row.title };
-    for (const userId of new Set([row.renter_id, row.other_id])) {
+    push([row.renter_id, row.other_id], { type: 'message', conversationId, messageId: row.id, senderId: row.sender_id, senderName: row.sender_name, text: row.text, title: row.title });
+  }
+
+  function push(userIds, event) {
+    for (const userId of new Set(userIds)) {
       for (const stream of streams.get(userId) ?? []) stream.write(`data: ${JSON.stringify(event)}\n\n`);
     }
   }
@@ -850,13 +853,17 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
          CASE WHEN conversations.renter_id = $1 THEN other.avatar ELSE renter.avatar END AS other_avatar,
          last.text AS last_message, last.created_at AS last_at, last.sender_id = $1 AS last_mine,
          (SELECT COUNT(*)::int FROM messages WHERE conversation_id = conversations.id AND sender_id <> $1
-            AND id > coalesce((SELECT last_read_id FROM conversation_reads WHERE conversation_id = conversations.id AND user_id = $1), 0)) AS unread
+            AND id > greatest(coalesce(mine.last_read_id, 0), coalesce(mine.cleared_id, 0))) AS unread
        FROM conversations
        JOIN listings ON listings.id = conversations.listing_id
        JOIN users renter ON renter.id = conversations.renter_id
        JOIN users other ON other.id = coalesce(conversations.peer_id, listings.user_id)
-       LEFT JOIN LATERAL (SELECT text, created_at, sender_id FROM messages WHERE conversation_id = conversations.id ORDER BY id DESC LIMIT 1) last ON true
-       WHERE conversations.renter_id = $1 OR coalesce(conversations.peer_id, listings.user_id) = $1
+       LEFT JOIN conversation_reads mine ON mine.conversation_id = conversations.id AND mine.user_id = $1
+       LEFT JOIN LATERAL (SELECT text, created_at, sender_id FROM messages
+         WHERE conversation_id = conversations.id AND id > coalesce(mine.cleared_id, 0) ORDER BY id DESC LIMIT 1) last ON true
+       WHERE (conversations.renter_id = $1 OR coalesce(conversations.peer_id, listings.user_id) = $1)
+         -- A deleted chat comes back only when someone writes again.
+         AND (mine.cleared_id IS NULL OR last.created_at IS NOT NULL)
        ORDER BY coalesce(last.created_at, conversations.created_at) DESC, conversations.id DESC`,
       [req.user.id],
     );
@@ -875,6 +882,28 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
     res.json({ items, unread: items.reduce((sum, item) => sum + item.unread, 0) });
   });
 
+  // Deleting a chat clears it for this person only; the other side keeps the conversation.
+  app.delete('/api/conversations/:id', requireUser, async (req, res) => {
+    const conversation = await conversationFor(req.params.id, req.user.id);
+    await db.run(
+      `INSERT INTO conversation_reads (conversation_id, user_id, last_read_id, cleared_id)
+       SELECT $1, $2, m, m FROM (SELECT coalesce(max(id), 0) AS m FROM messages WHERE conversation_id = $1) last
+       ON CONFLICT (conversation_id, user_id) DO UPDATE SET last_read_id = excluded.last_read_id, cleared_id = excluded.cleared_id`,
+      [conversation.id, req.user.id],
+    );
+    res.status(204).end();
+  });
+
+  // People delete their own messages, for both sides.
+  app.delete('/api/conversations/:id/messages/:messageId', requireUser, async (req, res) => {
+    const conversation = await conversationFor(req.params.id, req.user.id);
+    const messageId = idParam(req.params.messageId);
+    const deleted = await db.run('DELETE FROM messages WHERE id = $1 AND conversation_id = $2 AND sender_id = $3', [messageId, conversation.id, req.user.id]);
+    if (!deleted) throw new HttpError(404, 'not_found');
+    push([conversation.renter_id, conversation.other_id], { type: 'deleted', conversationId: conversation.id, messageId });
+    res.status(204).end();
+  });
+
   app.post('/api/conversations/:id/read', requireUser, async (req, res) => {
     const conversation = await conversationFor(req.params.id, req.user.id);
     await markRead(db, conversation.id, req.user.id);
@@ -883,7 +912,11 @@ export function createApp({ db, dgis, uploadsDir, clientDist, searchParser = cre
 
   app.get('/api/conversations/:id/messages', requireUser, async (req, res) => {
     const conversation = await conversationFor(req.params.id, req.user.id);
-    const rows = await db.all('SELECT * FROM messages WHERE conversation_id = $1 ORDER BY id', [conversation.id]);
+    const rows = await db.all(
+      `SELECT * FROM messages WHERE conversation_id = $1
+         AND id > coalesce((SELECT cleared_id FROM conversation_reads WHERE conversation_id = $1 AND user_id = $2), 0) ORDER BY id`,
+      [conversation.id, req.user.id],
+    );
     const other = await db.get('SELECT name, avatar FROM users WHERE id = $1', [conversation.renter_id === req.user.id ? conversation.other_id : conversation.renter_id]);
     res.json({
       title: conversation.title,

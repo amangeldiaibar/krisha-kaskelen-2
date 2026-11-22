@@ -380,6 +380,7 @@ describe('chat button', () => {
       '/auth/me': { user: { id: 1, name: 'Dias', role: 'user' } },
       '/conversations/7/messages': (path) => (path.endsWith('/messages') ? { title: 'Квартира у SDU', listingId: 5, otherName: 'Аружан', otherAvatar: null, items: [{ id: 1, text: 'Здравствуйте', isMine: false, createdAt: '2026-11-22T09:00:00Z' }] } : {}),
       '/conversations/7/read': () => { unread = 0; return {}; },
+      '/conversations/7': {},
       '/conversations': () => ({ unread, items: [{ id: 7, listingId: 5, title: 'Квартира у SDU', otherName: 'Аружан', otherAvatar: null, lastMessage: 'Здравствуйте', lastAt: '2026-11-22T09:00:00Z', lastMine: false, unread, flatmate: false }] }),
     });
     show('/ru', <ChatWidget />, '/:lang');
@@ -397,6 +398,10 @@ describe('chat button', () => {
     fireEvent.change(screen.getByLabelText('Напишите сообщение'), { target: { value: 'Да' } });
     fireEvent.click(screen.getByRole('button', { name: 'Отправить' }));
     await waitFor(() => expect(calls.find((call) => call.path === '/conversations/7/messages' && call.method === 'POST')?.body).toEqual({ text: 'Да' }));
+
+    vi.stubGlobal('confirm', () => true);
+    fireEvent.click(screen.getByRole('button', { name: 'Удалить чат' }));
+    await waitFor(() => expect(calls.some((call) => call.path === '/conversations/7' && call.method === 'DELETE')).toBe(true));
 
     // Closing plays an animation first, then the window leaves.
     fireEvent.click(screen.getAllByRole('button', { name: 'Закрыть сообщения' })[0]);

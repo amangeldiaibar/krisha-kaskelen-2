@@ -371,6 +371,34 @@ describe('favorites and chat', () => {
     assert.equal((await renter(`/api/conversations/${b}/messages`)).data.otherName, 'Имя Фамилия');
   });
 
+  it('deletes your own messages for both sides, and a chat for you only until someone writes again', async () => {
+    const owner = await newUser();
+    const listing = (await owner('/api/listings', { method: 'POST', body: form() })).data.item.id;
+    await approve(listing);
+    const renter = await newUser();
+    const id = (await renter(`/api/listings/${listing}/conversation`, { method: 'POST' })).data.id;
+    const hello = (await renter(`/api/conversations/${id}/messages`, { method: 'POST', json: { text: 'Привет' } })).data.id;
+    const answer = (await owner(`/api/conversations/${id}/messages`, { method: 'POST', json: { text: 'Добрый день' } })).data.id;
+
+    // Only the author deletes a message, and it goes for both.
+    assert.equal((await renter(`/api/conversations/${id}/messages/${answer}`, { method: 'DELETE' })).status, 404);
+    assert.equal((await renter(`/api/conversations/${id}/messages/${hello}`, { method: 'DELETE' })).status, 204);
+    assert.deepEqual((await owner(`/api/conversations/${id}/messages`)).data.items.map((m) => m.text), ['Добрый день']);
+    const stranger = await newUser();
+    assert.equal((await stranger(`/api/conversations/${id}`, { method: 'DELETE' })).status, 404);
+
+    assert.equal((await renter(`/api/conversations/${id}`, { method: 'DELETE' })).status, 204);
+    assert.equal((await renter('/api/conversations')).data.items.length, 0);
+    assert.deepEqual((await renter(`/api/conversations/${id}/messages`)).data.items, []);
+    // The owner still has the whole chat.
+    assert.equal((await owner('/api/conversations')).data.items[0].lastMessage, 'Добрый день');
+
+    await owner(`/api/conversations/${id}/messages`, { method: 'POST', json: { text: 'Ещё актуально?' } });
+    const back = (await renter('/api/conversations')).data;
+    assert.deepEqual(back.items.map((item) => [item.lastMessage, item.unread]), [['Ещё актуально?', 1]]);
+    assert.deepEqual((await renter(`/api/conversations/${id}/messages`)).data.items.map((m) => m.text), ['Ещё актуально?']);
+  });
+
   it('pushes a new message to both sides at once, and to nobody else', async () => {
     assert.equal((await fetch(`${base}/api/events`)).status, 401);
     const owner = await newUser();

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { api } from '../api.js';
-import { useAuth, useI18n } from '../context.jsx';
+import { useAuth, useI18n, useToast } from '../context.jsx';
 
 /** Opens the chat button's window on a conversation, from anywhere on the site. */
 export const openChat = (id) => window.dispatchEvent(new CustomEvent('chat:open', { detail: { id } }));
@@ -23,8 +23,9 @@ function when(date, lang) {
   return new Intl.DateTimeFormat(lang, today ? { hour: '2-digit', minute: '2-digit' } : { day: 'numeric', month: 'short' }).format(d);
 }
 
-function Thread({ id, onBack, onClose, onRead }) {
+function Thread({ id, onBack, onClose, onRead, onDeleted }) {
   const { t, tError, path, lang } = useI18n();
+  const toast = useToast();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [text, setText] = useState('');
@@ -71,6 +72,28 @@ function Thread({ id, onBack, onClose, onRead }) {
     }
   }
 
+  async function removeMessage(message) {
+    if (!window.confirm(t('deleteMessageConfirm'))) return;
+    setError(null);
+    try {
+      await api(`/conversations/${id}/messages/${message.id}`, { method: 'DELETE' });
+      setData((old) => old && { ...old, items: old.items.filter((item) => item.id !== message.id) });
+    } catch (failure) {
+      setError(failure);
+    }
+  }
+
+  async function removeChat() {
+    if (!window.confirm(t('deleteChatConfirm'))) return;
+    try {
+      await api(`/conversations/${id}`, { method: 'DELETE' });
+      toast(t('toastChatDeleted'));
+      onDeleted();
+    } catch (failure) {
+      setError(failure);
+    }
+  }
+
   return (
     <>
       <div className="cw-head">
@@ -80,6 +103,9 @@ function Thread({ id, onBack, onClose, onRead }) {
           <b>{data?.otherName ?? '…'}</b>
           {data && <Link to={path(`/listing/${data.listingId}`)}>{data.title}</Link>}
         </div>
+        <button type="button" className="cw-icon" onClick={removeChat} aria-label={t('deleteChat')} title={t('deleteChat')}>
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2zm-3 6h12l-1 12H7L6 9zm4 2v8h2v-8h-2zm4 0v8h2v-8h-2z" /></svg>
+        </button>
         <button type="button" className="cw-icon" onClick={onClose} aria-label={t('closeChats')}>×</button>
       </div>
       <div className="cw-messages" ref={list} aria-live="polite">
@@ -88,6 +114,9 @@ function Thread({ id, onBack, onClose, onRead }) {
           <div className={`cw-bubble${message.isMine ? ' mine' : ''}`} key={message.id}>
             <span className="prose">{message.text}</span>
             <time>{when(message.createdAt, lang)}</time>
+            {message.isMine && (
+              <button type="button" className="cw-del" onClick={() => removeMessage(message)} aria-label={t('deleteMessage')} title={t('deleteMessage')}>×</button>
+            )}
           </div>
         ))}
       </div>
@@ -166,7 +195,9 @@ export default function ChatWidget() {
       window.dispatchEvent(new CustomEvent('chat:message', { detail: message }));
       const { open: isOpen, active: current } = state.current;
       const seen = isOpen && current === message.conversationId;
-      if (message.senderId !== user.id && !seen) setPreview(message);
+      if (message.type === 'message' && message.senderId !== user.id && !seen) setPreview(message);
+      // A deleted message leaves the preview too.
+      if (message.type === 'deleted') setPreview((old) => (old?.messageId === message.messageId ? null : old));
     };
     return () => source.close();
   }, [user, reload]);
@@ -213,7 +244,7 @@ export default function ChatWidget() {
       {open && (
         <section className={`cw-panel${closing ? ' closing' : ''}`} role="dialog" aria-label={t('chats')}>
           {active ? (
-            <Thread id={active} onBack={() => { setActive(null); reload(); }} onClose={hide} onRead={reload} />
+            <Thread id={active} onBack={() => { setActive(null); reload(); }} onClose={hide} onRead={reload} onDeleted={() => { setActive(null); reload(); }} />
           ) : (
             <>
               <div className="cw-head">

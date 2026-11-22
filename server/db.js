@@ -142,6 +142,8 @@ CREATE TABLE IF NOT EXISTS conversation_reads (
   last_read_id integer NOT NULL DEFAULT 0,
   PRIMARY KEY (conversation_id, user_id)
 );
+-- "Delete chat" hides the messages up to this id for that person only; NULL means never deleted.
+ALTER TABLE conversation_reads ADD COLUMN IF NOT EXISTS cleared_id integer;
 -- People who want to rent a flat together with someone mark it here, and others write to them.
 CREATE TABLE IF NOT EXISTS roommates (
   listing_id integer NOT NULL REFERENCES listings(id) ON DELETE CASCADE,

@@ -853,6 +853,10 @@ legend { font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
 .cw-messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 12px; background: var(--bg); }
 .cw-bubble { max-width: 80%; align-self: flex-start; padding: 7px 11px 5px; border-radius: 14px 14px 14px 4px; background: var(--card); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); overflow-wrap: anywhere; }
 .cw-bubble.mine { align-self: flex-end; border-radius: 14px 14px 4px 14px; background: #d8ebf3; }
+.cw-bubble { position: relative; }
+.cw-del { position: absolute; top: -8px; left: -8px; width: 22px; height: 22px; border: 0; border-radius: 50%; background: #e0352b; color: #fff; font-size: 0.9rem; line-height: 1; cursor: pointer; opacity: 0; transform: scale(0.7); transition: opacity 0.15s, transform 0.15s; }
+.cw-bubble:hover .cw-del, .cw-del:focus-visible { opacity: 1; transform: none; }
+@media (hover: none) { .cw-del { opacity: 0.85; transform: none; } }
 .cw-bubble time { display: block; text-align: right; color: var(--muted); font-size: 0.7rem; }
 .cw-empty { padding: 24px 16px; text-align: center; }
 .cw-error { padding: 0 12px; }
@@ -864,4 +868,18 @@ legend { font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
   .cw-panel { position: fixed; inset: 0; width: auto; height: auto; border-radius: 0; }
   .cw-button.open { display: none; }
   .compare-bar { bottom: 84px; }
+}
+
+/* The header stays on one line in every language: Russian and Kazakh labels are longer than English ones. */
+@media (min-width: 801px) {
+  header .wrap { max-width: 1320px; flex-wrap: nowrap; gap: clamp(10px, 1.2vw, 16px); }
+  header nav { flex-wrap: nowrap; white-space: nowrap; gap: clamp(10px, 1.3vw, 18px); font-size: clamp(0.8rem, 0.45rem + 0.45vw, 0.95rem); }
+  header nav a.nav-login, header nav a.nav-signup { padding: 4px clamp(10px, 1.1vw, 16px); }
+  header .logo, header .lang { flex: none; }
+}
+/* Too narrow for one line: the logo and the language switch stay on top, the links get their own row below. */
+@media (min-width: 801px) and (max-width: 1120px) {
+  header .wrap { flex-wrap: wrap; row-gap: 6px; }
+  header nav { order: 3; flex-basis: 100%; margin-left: 0; justify-content: center; font-size: 0.9rem; }
+  header .lang { margin-left: auto; }
 }
